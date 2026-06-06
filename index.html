@@ -204,12 +204,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 .bar-fill{height:100%;background:var(--bar);border-radius:6px;min-width:3px;transition:width .6s cubic-bezier(.22,1,.36,1)}
 .bar-fill.accent{background:var(--bar-accent)}
 .bar-row .amt{text-align:right;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
-.combo{display:flex;align-items:flex-end;gap:var(--s4);height:190px;padding:var(--s3) 2px 0}
+.combo{display:flex;align-items:flex-end;gap:var(--s4);height:210px;padding:38px 2px 0}
 .combo .mcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
 .combo .pair{display:flex;align-items:flex-end;gap:4px;height:100%;width:100%;justify-content:center}
-.combo .b{width:15px;border-radius:5px 5px 0 0;min-height:2px;transition:height .6s cubic-bezier(.22,1,.36,1)}
+.combo .b{position:relative;width:15px;border-radius:5px 5px 0 0;min-height:2px;transition:height .6s cubic-bezier(.22,1,.36,1);overflow:visible}
 .combo .b.s{background:var(--bar)}
 .combo .b.e{background:var(--bar-accent)}
+.combo .b .bval{position:absolute;left:50%;bottom:100%;margin-bottom:3px;transform:translateX(-50%) rotate(180deg);writing-mode:vertical-rl;font-size:9px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:.02em;pointer-events:none}
 .combo .mlab{font-size:11px;color:var(--ink-3);font-weight:500}
 .legend{display:flex;gap:var(--s4);font-size:12px;color:var(--ink-2);margin-top:var(--s3);flex-wrap:wrap}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -298,6 +299,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
   .g3{grid-template-columns:repeat(2,minmax(0,1fr))}
   .g3>.card:last-child{grid-column:1/-1}
 }
+
 /* Expense documents */
 .docslots{display:flex;flex-direction:column;gap:6px}
 .docslot{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px dashed var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);flex-wrap:wrap}
@@ -914,6 +916,7 @@ function importData(ev){const f=ev.target.files[0];if(!f)return;const r=new File
 /* ============ HELPERS ============ */
 const $=(s,el=document)=>el.querySelector(s);
 const money=n=>'฿'+(Math.round((n||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2});
+const moneyK=n=>{n=Math.round(n||0);const a=Math.abs(n);if(a>=1e6)return (n/1e6).toFixed(2).replace(/\.?0+$/,'')+'M';if(a>=1e3)return Math.round(n/1e3).toLocaleString('en-US')+'K';return String(n);};
 const esc=s=>(''+(s??'')).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const MN={'01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun','07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec'};
 function toast(msg,icon){const t=$('#toast');t.innerHTML=(icon?ic(icon):'')+'<span>'+esc(msg)+'</span>';t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2400);}
@@ -1961,7 +1964,7 @@ function renderDashboard(){
   else{
     const trend=months.map(ym=>({ym,s:db.sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0),e:db.expenses.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.total,0)}));
     const tmax=Math.max(1,...trend.map(t=>Math.max(t.s,t.e)));
-    $('#trendChart').innerHTML='<div class="combo">'+trend.map(t=>`<div class="mcol"><div class="pair"><div class="b s" style="height:${Math.round(t.s/tmax*100)}%" title="Sales ${money(t.s)}"></div><div class="b e" style="height:${Math.round(t.e/tmax*100)}%" title="Expenses ${money(t.e)}"></div></div><div class="mlab">${MN[t.ym.slice(5,7)]}</div></div>`).join('')+'</div><div class="legend"><span><i style="background:var(--primary)"></i>Sales</span><span><i style="background:var(--accent)"></i>Expenses</span></div>';
+    $('#trendChart').innerHTML='<div class="combo">'+trend.map(t=>`<div class="mcol"><div class="pair"><div class="b s" style="height:${Math.round(t.s/tmax*85)}%" title="Sales ${money(t.s)}">${t.s?`<span class="bval">${moneyK(t.s)}</span>`:''}</div><div class="b e" style="height:${Math.round(t.e/tmax*85)}%" title="Expenses ${money(t.e)}">${t.e?`<span class="bval">${moneyK(t.e)}</span>`:''}</div></div><div class="mlab">${MN[t.ym.slice(5,7)]}</div></div>`).join('')+'</div><div class="legend"><span><i style="background:var(--primary)"></i>Sales</span><span><i style="background:var(--accent)"></i>Expenses</span></div>';
   }
   $('#catChart').innerHTML=barChart(groupSum(sales,s=>s.cat,s=>s.net));
   $('#pmChart').innerHTML=barChart(groupSum(sales,s=>s.pm,s=>s.paid));
@@ -1997,7 +2000,7 @@ function renderSalesDash(){
   else{
     const trend=months.map(ym=>({ym,s:db.sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0)}));
     const tmax=Math.max(1,...trend.map(t=>t.s));
-    $('#sdTrend').innerHTML='<div class="combo">'+trend.map(t=>`<div class="mcol"><div class="pair"><div class="b s" style="height:${Math.round(t.s/tmax*100)}%" title="Sales ${money(t.s)}"></div></div><div class="mlab">${MN[t.ym.slice(5,7)]}</div></div>`).join('')+'</div><div class="legend"><span><i style="background:var(--primary)"></i>Sales</span></div>';
+    $('#sdTrend').innerHTML='<div class="combo">'+trend.map(t=>`<div class="mcol"><div class="pair"><div class="b s" style="height:${Math.round(t.s/tmax*85)}%" title="Sales ${money(t.s)}">${t.s?`<span class="bval">${moneyK(t.s)}</span>`:''}</div></div><div class="mlab">${MN[t.ym.slice(5,7)]}</div></div>`).join('')+'</div><div class="legend"><span><i style="background:var(--primary)"></i>Sales</span></div>';
   }
   $('#sdCat').innerHTML=barChart(groupSum(sales,s=>s.cat,s=>s.net));
   $('#sdPm').innerHTML=barChart(groupSum(sales,s=>s.pm,s=>s.paid));
@@ -2070,7 +2073,6 @@ function analyticsReport(){
       {l:'Profit',g:r=>r.p,num:true,total:true},{l:'Margin %',g:r=>Math.round(r.m*10)/10,num:true},{l:'MoM Growth %',g:r=>r.g===''?'':Math.round(r.g*10)/10,num:true}]};
 }
 function exportAnalyticsXls(){const r=analyticsReport();if(!r.rows.length){toast('No data to export','alert');return;}exportXls(r);}
-
 /* ============ RENDER ALL ============ */
 function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderMaster();}
 
