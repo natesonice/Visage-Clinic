@@ -610,7 +610,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 
       <!-- MASTER -->
       <section id="view-master" class="view">
-        <div class="phead"><div><h2>Master Data</h2><p>Edit these lists to update every dropdown across the app</p></div></div>
+        <div class="phead"><div><h2>Master Data</h2><p>Edit these lists to update every dropdown across the app</p></div><div class="grow"></div>
+          <button class="btn sec" onclick="openClinicInfo()" title="Clinic name/address for printed receipts & certificates">__I_doc__ Clinic Details</button></div>
         <div class="mlists" id="masterLists" style="margin-bottom:var(--s4)"></div>
         <div class="card">
           <div class="hd"><h3>Data &amp; Backup</h3></div>
@@ -699,6 +700,7 @@ const MASTER_DEFAULT={
   approvalStatuses:["Pending","Approved","Rejected","Reimbursed"],
   responsible:["Manager","Manager – Anita","Owner – Dr. Lim","Finance – Raj","Front Desk – Karen"],
   membershipTiers:["None","Member","Silver","Gold","Platinum"],
+  clinic:{nameTh:"บริษัท เดอะ อินฟินิตี้ วีเมด โซลูชั่น จำกัด",nameEn:"Visage Clinic",address:"21/1 อาคารเดอะไนน์ทีน แอท ชิดลม ชั้น 2 ห้อง 201 ซอยชิดลม ถนนเพลินจิต แขวงลุมพินี เขตปทุมวัน กรุงเทพมหานคร 10330",phone:"",taxId:"0105564031732",doctor:"",license:""},
   inventoryTypes:["Injectables & Fillers","Device Consumables","Medications","Skincare & Masks","Disposables & PPE","Medical Supplies"],
   inventoryUnits:["unit","box","bottle","vial","tip","pcs","tube","pack"],
   promoTypes:["Percentage off","Fixed amount off","Package price","Free add-on","Buy X get Y","Other"],
@@ -1240,6 +1242,11 @@ function openCustomer(existing){
      <div class="field"><label>Gender</label><select id="c_gender">${opts(['Female','Male','Other'],s.gender)}</select></div>
      <div class="field"><label>Membership Tier</label><select id="c_tier">${opts(m.membershipTiers,s.tier||'None')}</select></div>
    </div>
+   <div class="grid2">
+     <div class="field"><label>National ID (เลขบัตรประชาชน)<span class="hint" style="font-weight:400;color:var(--ink-3)"> — for medical certificate; optional</span></label><input id="c_natid" value="${esc(s.natId||'')}" placeholder="13 หลัก"></div>
+     <div class="field"><label>Date of Birth (วันเกิด)</label><input type="date" id="c_dob" value="${s.dob||''}"></div>
+   </div>
+   <div class="field"><label>Address (ที่อยู่)<span class="hint" style="font-weight:400;color:var(--ink-3)"> — for tax receipts; optional</span></label><textarea id="c_addr" rows="2" placeholder="บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์…">${esc(s.address||'')}</textarea></div>
    <div class="field"><label>Notes</label><textarea id="c_notes" rows="2" placeholder="Optional…">${esc(s.notes||'')}</textarea></div>`;
   const footer=`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveCustomer(${existing?`'${s.id}'`:'null'})">${existing?'Update':'Save'} customer</button>`;
   showModal(existing?'Edit Customer · '+s.id:'New Customer',body,footer);
@@ -1249,7 +1256,7 @@ function saveCustomer(editId){
   let b=!g('c_name').trim();markBad('c_name',b);if(b)ok=false;
   b=!g('c_reg');markBad('c_reg',b);if(b)ok=false;
   if(!ok){toast('Please fill required fields','alert');return;}
-  const rec={id:g('c_id'),name:g('c_name').trim(),phone:g('c_phone'),email:g('c_email'),reg:g('c_reg'),gender:g('c_gender'),tier:g('c_tier'),notes:g('c_notes')};
+  const rec={id:g('c_id'),name:g('c_name').trim(),phone:g('c_phone'),email:g('c_email'),reg:g('c_reg'),gender:g('c_gender'),tier:g('c_tier'),natId:g('c_natid').trim(),dob:g('c_dob'),address:g('c_addr').trim(),notes:g('c_notes')};
   if(editId){db.customers[db.customers.findIndex(x=>x.id===editId)]=rec;}else{db.customers.unshift(rec);db.seq.cust++;}
   save();renderAll();closeModal();toast(editId?'Customer updated':'Customer added','check');
 }
@@ -1424,6 +1431,123 @@ function printReport(rep){
   const go=()=>{try{f.contentWindow.focus();f.contentWindow.print();}catch(e){toast('Could not open print dialog','alert');}};
   if(f.contentWindow.document.readyState==='complete')setTimeout(go,80);else f.onload=()=>setTimeout(go,80);
 }
+/* ---- generic document printer (shared by receipt + certificate) ---- */
+function printHtmlDoc(htmlDoc){
+  let f=document.getElementById('printFrame');if(f)f.remove();
+  f=document.createElement('iframe');f.id='printFrame';f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(f);
+  const fd=f.contentDocument||f.contentWindow.document;fd.open();fd.write(htmlDoc);fd.close();
+  const go=()=>{try{f.contentWindow.focus();f.contentWindow.print();}catch(e){toast('Could not open print dialog','alert');}};
+  if(f.contentWindow.document.readyState==='complete')setTimeout(go,90);else f.onload=()=>setTimeout(go,90);
+}
+/* ---- Thai Baht text (อ่านจำนวนเงินเป็นตัวอักษร) ---- */
+function bahtText(num){
+  num=Math.round((+num||0)*100)/100;
+  const txt=['ศูนย์','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'],pos=['','สิบ','ร้อย','พัน','หมื่น','แสน','ล้าน'];
+  function readInt(n){n=String(n);let s='';const L=n.length;for(let i=0;i<L;i++){const d=+n[i];const p=L-i-1;
+    if(d===0)continue;
+    if(p%6===0&&p>0){s+=txt[d]+'ล้าน';continue;}
+    const pp=p%6;
+    if(pp===1&&d===1)s+='สิบ';
+    else if(pp===1&&d===2)s+='ยี่สิบ';
+    else if(pp===0&&d===1&&L>1&&n[i-1]!=='0')s+='เอ็ด';
+    else s+=txt[d]+pos[pp];}
+    return s||'';}
+  const b=Math.floor(num),st=Math.round((num-b)*100);
+  let out=(b>0?readInt(b)+'บาท':'');
+  if(st>0)out+=readInt(st)+'สตางค์'; else out+=(b>0?'ถ้วน':'ศูนย์บาทถ้วน');
+  return out;
+}
+function clinicHeaderHtml(){
+  const c=(db.master&&db.master.clinic)||{nameTh:'Visage Clinic',nameEn:'VISAGE CLINIC'};
+  return `<div class="ch">
+    <div class="cn">${esc(c.nameTh||'Visage Clinic')}</div>
+    <div class="ce">${esc(c.nameEn||'')}</div>
+    ${c.address?`<div class="cm">${esc(c.address)}</div>`:''}
+    <div class="cm">${[c.phone?'โทร. '+esc(c.phone):'',c.taxId?'เลขประจำตัวผู้เสียภาษี '+esc(c.taxId):''].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
+  </div>`;
+}
+const DOC_CSS='*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun","Tahoma","Leelawadee UI",Arial,sans-serif;color:#1a1418;margin:0;font-size:15px;line-height:1.5}'+
+  '.page{padding:18mm 16mm}.ch{text-align:center;border-bottom:2px solid #a97c43;padding-bottom:8px;margin-bottom:14px}'+
+  '.cn{font-size:22px;font-weight:700}.ce{font-size:12px;letter-spacing:3px;color:#555}.cm{font-size:12px;color:#555;margin-top:2px}'+
+  '.dt{text-align:center;font-size:19px;font-weight:700;margin:6px 0 4px}.dte{text-align:center;font-size:11px;letter-spacing:2px;color:#666;margin-bottom:14px}'+
+  '.row{display:flex;justify-content:space-between;font-size:14px;margin:3px 0}.muted{color:#666}'+
+  'table{width:100%;border-collapse:collapse;margin:12px 0}th,td{border:1px solid #cfcac4;padding:6px 8px;font-size:14px}th{background:#f2efe9;text-align:left}td.n,th.n{text-align:right;white-space:nowrap}'+
+  '.tot{font-weight:700}.words{background:#faf6ef;border:1px dashed #c9b08a;padding:6px 10px;border-radius:6px;font-size:14px;margin-top:6px}'+
+  '.sign{display:flex;justify-content:space-around;margin-top:42px;text-align:center;font-size:13px}.sign .ln{border-top:1px dotted #555;width:200px;margin:0 auto 4px}'+
+  '.note{font-size:14px;line-height:2.1;margin:10px 0}.fill{border-bottom:1px dotted #888;display:inline-block;min-width:120px}'+
+  '.cert{margin:16px 0}.cf{display:flex;gap:10px;margin:8px 0;font-size:14px;align-items:baseline}.cf .cl{min-width:240px;color:#444;font-weight:600}.cf .cv{flex:1}.cf.col{display:block}.cf.col .cl{display:block;margin-bottom:6px}.cf.col .cv{line-height:2.4}.lead{font-size:14px;margin:8px 0 4px}'+
+  '@media print{@page{size:A5;margin:0}}';
+function saleById(inv){return db.sales.find(s=>s.inv===inv);}
+function thDate(d){if(!d)return '';const[y,m,dd]=d.split('-');const mo=['','มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];return parseInt(dd,10)+' '+mo[parseInt(m,10)]+' พ.ศ. '+(parseInt(y,10)+543);}
+function printReceipt(inv){
+  const s=saleById(inv);if(!s){toast('Sale not found','alert');return;}
+  const cust=db.customers.find(c=>c.id===s.cid)||{};
+  const doc=`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบเสร็จรับเงิน ${esc(s.inv)}</title><style>${DOC_CSS}</style></head><body><div class="page">
+    ${clinicHeaderHtml()}
+    <div class="dt">ใบเสร็จรับเงิน</div><div class="dte">RECEIPT</div>
+    <div class="row"><span>เลขที่ / No. <strong>${esc(s.inv)}</strong></span><span>วันที่ / Date ${esc(thDate(s.date))}</span></div>
+    <div class="row"><span>ได้รับเงินจาก / Received from <strong>${esc(custName(s.cid)||'-')}</strong></span><span class="muted">HN ${esc(s.cid||'-')}</span></div>
+    <div class="row" style="display:block"><span>ที่อยู่ / Address: ${cust.address?esc(cust.address):'<span class="fill" style="min-width:75%"></span>'}</span></div>
+    ${cust.phone?`<div class="row"><span class="muted">โทร. ${esc(cust.phone)}</span><span></span></div>`:''}
+    <table><thead><tr><th>รายการ / Description</th><th class="n">จำนวน</th><th class="n">จำนวนเงิน (บาท)</th></tr></thead><tbody>
+      <tr><td>${esc(s.svc)}${s.pkg?' (แพ็กเกจ)':''}${s.cat?'<div class="muted" style="font-size:12px">'+esc(s.cat)+'</div>':''}</td><td class="n">${s.qty}</td><td class="n">${_money2(s.net)}</td></tr>
+    </tbody><tfoot>
+      <tr class="tot"><td colspan="2" class="n">รวมเป็นเงินทั้งสิ้น</td><td class="n">${_money2(s.net)}</td></tr>
+      <tr><td colspan="2" class="n">ชำระแล้ว (${esc(s.pm||'-')})</td><td class="n">${_money2(s.paid)}</td></tr>
+      ${s.balance>0.001?`<tr><td colspan="2" class="n">คงเหลือค้างชำระ</td><td class="n">${_money2(s.balance)}</td></tr>`:''}
+    </tfoot></table>
+    <div class="words">(ตัวอักษร) ${esc(bahtText(s.paid>0?s.paid:s.net))}</div>
+    <div class="sign"><div><div style="height:36px"></div><div class="ln"></div>ผู้รับเงิน / Cashier</div><div><div style="height:36px"></div><div class="ln"></div>ผู้มีอำนาจลงนาม</div></div>
+  </div></body></html>`;
+  printHtmlDoc(doc);
+}
+function printCert(inv){
+  const s=saleById(inv);if(!s){toast('Sale not found','alert');return;}
+  const c=(db.master&&db.master.clinic)||{};const cust=db.customers.find(x=>x.id===s.cid)||{};
+  const idline=cust.natId||((cust.notes&&/\d{13}/.test(cust.notes))?(cust.notes.match(/\d{13}/)||[''])[0]:'');
+  const doc=`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบรับรองแพทย์ ${esc(s.inv)}</title><style>${DOC_CSS}@media print{@page{size:A4;margin:0}}</style></head><body><div class="page">
+    ${clinicHeaderHtml()}
+    <div class="dt">ใบรับรองแพทย์</div><div class="dte">MEDICAL CERTIFICATE</div>
+    <div class="row" style="justify-content:flex-end"><span class="muted">เลขที่อ้างอิง ${esc(s.inv)} &nbsp;·&nbsp; วันที่ออก ${esc(thDate(s.date))}</span></div>
+    <div class="lead">ข้าพเจ้า แพทย์ผู้ตรวจรักษา ขอรับรองว่าได้ทำการตรวจและให้การรักษาแก่ผู้ป่วยตามรายละเอียดดังต่อไปนี้</div>
+    <div class="cert">
+      <div class="cf"><span class="cl">ชื่อแพทย์ผู้ตรวจรักษา</span><span class="cv">${c.doctor?esc(c.doctor):'<span class="fill" style="min-width:60%"></span>'}</span></div>
+      <div class="cf"><span class="cl">เลขที่ใบอนุญาตประกอบวิชาชีพเวชกรรม (เลข ว.)</span><span class="cv">${c.license?esc(c.license):'<span class="fill" style="min-width:45%"></span>'}</span></div>
+      <div class="cf"><span class="cl">ชื่อ-นามสกุลผู้ป่วย</span><span class="cv"><strong>${esc(custName(s.cid)||'')}</strong> &nbsp;<span class="muted">HN ${esc(s.cid||'-')}</span></span></div>
+      <div class="cf"><span class="cl">เลขประจำตัวประชาชนของผู้ป่วย</span><span class="cv">${idline?esc(idline):'<span class="fill" style="min-width:50%"></span>'}</span></div>
+      <div class="cf"><span class="cl">วันที่ตรวจรักษา</span><span class="cv">${esc(thDate(s.date))}</span></div>
+      <div class="cf"><span class="cl">บริการ / หัตถการที่ได้รับ</span><span class="cv">${esc(s.svc)}</span></div>
+      <div class="cf col"><span class="cl">ความเห็นและคำวินิจฉัยของแพทย์</span>
+        <div class="cv"><span class="fill" style="min-width:100%"></span><br><span class="fill" style="min-width:100%"></span><br><span class="fill" style="min-width:100%"></span></div></div>
+    </div>
+    <div class="sign"><div><div style="height:48px"></div><div class="ln"></div>ลายมือชื่อแพทย์ผู้ตรวจ<br>(${c.doctor?esc(c.doctor):'..............................'})<br><span class="muted">วันที่ ${esc(thDate(s.date))}</span></div></div>
+    <div style="font-size:11px;color:#888;margin-top:26px;text-align:center">เอกสารนี้ออกโดย ${esc(c.nameTh||'Visage Clinic')} — ใช้สำหรับการรักษาที่คลินิกเท่านั้น</div>
+  </div></body></html>`;
+  printHtmlDoc(doc);
+}
+/* ---- clinic info editor (for printed documents) ---- */
+function openClinicInfo(){
+  const c=(db.master&&db.master.clinic)||{};
+  const body=`<p style="color:var(--ink-2);font-size:13px;margin:0 0 var(--s4)">These details print at the top of receipts (ใบเสร็จรับเงิน) and medical certificates (ใบรับรองแพทย์).</p>
+   <div class="grid2">
+     <div class="field"><label>Clinic name (Thai)</label><input id="ci_th" value="${esc(c.nameTh||'')}"></div>
+     <div class="field"><label>Clinic name (English)</label><input id="ci_en" value="${esc(c.nameEn||'')}"></div>
+   </div>
+   <div class="field"><label>Address (ที่อยู่)</label><input id="ci_addr" value="${esc(c.address||'')}"></div>
+   <div class="grid3">
+     <div class="field"><label>Phone (โทร.)</label><input id="ci_phone" value="${esc(c.phone||'')}"></div>
+     <div class="field"><label>Tax ID (เลขผู้เสียภาษี)</label><input id="ci_tax" value="${esc(c.taxId||'')}"></div>
+     <div class="field"><label>Doctor license No.</label><input id="ci_lic" value="${esc(c.license||'')}"></div>
+   </div>
+   <div class="field"><label>Default doctor name (for certificates)</label><input id="ci_doc" value="${esc(c.doctor||'')}"></div>`;
+  showModal('Clinic Details',body,`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveClinicInfo()">Save</button>`);
+}
+function saveClinicInfo(){
+  const g=id=>$('#'+id).value.trim();
+  db.master.clinic={nameTh:g('ci_th'),nameEn:g('ci_en'),address:g('ci_addr'),phone:g('ci_phone'),taxId:g('ci_tax'),license:g('ci_lic'),doctor:g('ci_doc')};
+  save();renderAll();closeModal();toast('Clinic details saved','check');
+}
 function printSales(){const r=salesReport();if(!r.rows.length){toast('No sales match the current filters','alert');return;}printReport(r);}
 function exportSalesXls(){const r=salesReport();if(!r.rows.length){toast('No sales match the current filters','alert');return;}exportXls(r);}
 function printExpenses(){const r=expensesReport();if(!r.rows.length){toast('No expenses match the current filters','alert');return;}printReport(r);}
@@ -1444,7 +1568,7 @@ function renderSales(){
     <td class="num">${s.qty}</td><td class="num">${money(s.net)}</td><td class="num">${money(s.paid)}</td>
     <td class="num">${s.balance>0.001?'<strong style="color:var(--bad)">'+money(s.balance)+'</strong>':money(0)}</td>
     <td>${statusPill(s.status)}</td>
-    <td><div class="rowact"><button class="iconbtn" onclick="editSale('${s.inv}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delSale('${s.inv}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`).join('')}</tbody></table>`;
+    <td><div class="rowact"><button class="iconbtn" title="พิมพ์ใบเสร็จรับเงิน / Print receipt" onclick="printReceipt('${s.inv}')" aria-label="Print receipt">${ic('receipt')}</button><button class="iconbtn" title="พิมพ์ใบรับรองแพทย์ / Medical certificate" onclick="printCert('${s.inv}')" aria-label="Medical certificate">${ic('doc')}</button><button class="iconbtn" onclick="editSale('${s.inv}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delSale('${s.inv}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`).join('')}</tbody></table>`;
 }
 /* ============ RENDER: EXPENSES ============ */
 function renderExpenses(){
