@@ -413,6 +413,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="dashboard" class="active">__I_grid__ Dashboard</a>
       <a data-view="salesdash">__I_trend__ Sales Dashboard</a>
       <a data-view="analytics">__I_chart__ Analytics</a>
+      <a data-view="reports">__I_doc__ Reports</a>
       <div class="lbl">Operations</div>
       <a data-view="sales">__I_sales__ Sales</a>
       <a data-view="expenses">__I_exp__ Expenses</a>
@@ -508,6 +509,28 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
           <div class="card"><div class="hd"><h3>Payment Mix</h3></div><div class="bd" id="anPm"></div></div>
           <div class="card"><div class="hd"><h3>Promotions</h3></div><div class="bd" id="anPromo"></div></div>
         </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section id="view-reports" class="view">
+        <div class="phead"><div><h2>Reports</h2><p>Monthly performance summary across finance, sales &amp; customers</p></div><div class="grow"></div>
+          <select id="rpMonth" onchange="renderReports()" title="Month for the detailed report"></select>
+          <select id="rpYear" onchange="renderReports()" title="Year for the comparison table"></select>
+          <button class="btn sec" onclick="printMonthlyReport()" title="Print the monthly report">__I_print__ Print</button>
+          <button class="btn sec" onclick="exportReportXls()" title="Download the full-year monthly table as Excel">__I_sheet__ Excel</button></div>
+        <h3 class="rp-h" id="rpDetailTitle" style="margin:2px 0 var(--s3);font-family:var(--font-serif)"></h3>
+        <div class="kpis" id="rpKpis"></div>
+        <div class="dash-grid g2">
+          <div class="card"><div class="hd"><h3>Profit &amp; Loss</h3><span class="sub">selected month</span></div><div class="bd flush tbl-wrap" id="rpPnl"></div></div>
+          <div class="card"><div class="hd"><h3>Sales by Category</h3></div><div class="bd" id="rpCat"></div></div>
+        </div>
+        <div class="dash-grid g3">
+          <div class="card"><div class="hd"><h3>Top Services / Products</h3></div><div class="bd flush tbl-wrap" id="rpSvc"></div></div>
+          <div class="card"><div class="hd"><h3>Payment Mix</h3></div><div class="bd" id="rpPm"></div></div>
+          <div class="card"><div class="hd"><h3>Customers</h3></div><div class="bd" id="rpCust"></div></div>
+        </div>
+        <div class="card"><div class="hd"><h3>Top Spenders</h3><span class="sub">selected month</span></div><div class="bd flush tbl-wrap" id="rpTop"></div></div>
+        <div class="card"><div class="hd"><h3 id="rpYearTitle">Monthly Comparison</h3><span class="sub">sales by date · expenses by ID period</span></div><div class="bd flush tbl-wrap" id="rpYear2"></div></div>
       </section>
 
       <!-- SALES -->
@@ -787,12 +810,12 @@ function isStaff(){return ROLE==='staff';}
 function applyRole(){
   const staff=isStaff();
   // staff: hide full Dashboard + Expenses + Analytics, show the sales-only Sales Dashboard
-  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"]').forEach(a=>a.style.display=staff?'none':'');
+  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"]').forEach(a=>a.style.display=staff?'none':'');
   const sd=document.querySelector('#nav a[data-view="salesdash"]');if(sd)sd.style.display=staff?'':'none';
   const rc=document.getElementById('roleChip');
   if(rc){rc.textContent=staff?'Staff':'Admin';rc.dataset.role=ROLE;rc.style.display='';}
   const cur=document.querySelector('.view.active');
-  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'))go('salesdash');}
+  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'))go('salesdash');}
   else{if(cur&&cur.id==='view-salesdash')go('dashboard');}
 }
 function dbToRecords(){
@@ -933,11 +956,16 @@ function groupSum(arr,k,v){const m={};arr.forEach(x=>{const kk=k(x);if(kk==null|
 function fillMonthSelect(sel,dates){const cur=sel.value;const ms=[...new Set(dates.map(d=>d.slice(0,7)))].sort().reverse();
   const ph=sel.options[0]?sel.options[0].outerHTML:'<option value="">All</option>';
   sel.innerHTML=ph+ms.map(m=>`<option ${m===cur?'selected':''} value="${m}">${monthLabel(m)}</option>`).join('');}
+// Accounting period for an expense comes from its ID (EX-YYMM-NNN, e.g. EX-2605-001 = 2026-05),
+// not the date on the tax invoice/receipt. Falls back to the date if the ID has no encoded period.
+function expPeriod(e){const m=String((e&&e.id)||'').match(/-(\d{2})(\d{2})-\d+$/);if(m&&+m[2]>=1&&+m[2]<=12)return '20'+m[1]+'-'+m[2];return (e&&e.date||'').slice(0,7);}
+// A date that represents the expense's accounting period (mid-month), for range filters like "This month" / "Last 90 days".
+function expDateForFilter(e){const p=expPeriod(e);return p?p+'-15':((e&&e.date)||'');}
 
 /* ============ NAV / THEME ============ */
-const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',master:'Master Data',about:'About & Design'};
+const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',master:'Master Data',about:'About & Design'};
 function go(view){
-  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'))view='salesdash';
+  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'))view='salesdash';
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#view-'+view).classList.add('active');
@@ -1356,7 +1384,7 @@ function salesReport(){
 }
 function expensesReport(){
   const q=($('#expSearch').value||'').toLowerCase(),cat=$('#expCat').value,ap=$('#expApproval').value,mo=$('#expMonth').value;
-  const rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||e.date.slice(0,7)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
+  const rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
   const f=[];if(mo)f.push('Month '+mo);if(cat)f.push('Category: '+cat);if(ap)f.push('Approval: '+ap);if($('#expSearch').value)f.push('Search: "'+$('#expSearch').value+'"');
   return {name:'Expenses',title:'Expenses Report',file:'Visage_Expenses_'+nowFile(),filters:f,rows,
     cols:[
@@ -1575,11 +1603,11 @@ function renderSales(){
 }
 /* ============ RENDER: EXPENSES ============ */
 function renderExpenses(){
-  fillMonthSelect($('#expMonth'),db.expenses.map(e=>e.date));
+  fillMonthSelect($('#expMonth'),db.expenses.map(e=>expPeriod(e)));
   const m=db.master;const sel=$('#expCat');const cur=sel.value;
   sel.innerHTML='<option value="">All categories</option>'+m.expenseCategories.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
   const q=($('#expSearch').value||'').toLowerCase(),cat=$('#expCat').value,ap=$('#expApproval').value,mo=$('#expMonth').value;
-  let rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||e.date.slice(0,7)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
+  let rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
   const sum=rows.reduce((a,e)=>a+e.total,0),whtSum=rows.reduce((a,e)=>a+(e.wht||0),0);
   $('#expCount').innerHTML=`<b>${rows.length}</b> of ${db.expenses.length} · <b>${money(sum)}</b>${whtSum>0.001?` · WHT <b>${money(whtSum)}</b>`:''}`;
   if(!db.expenses.length){$('#expTable').innerHTML=emptyState('exp','No expenses yet','Record a clinic cost to start tracking spend.',`<button class="btn" onclick="openExpense()">${ic('plus')} New Expense</button>`);return;}
@@ -1939,11 +1967,11 @@ function barChart(data,accent){
   return '<div class="bars">'+data.map(d=>`<div class="bar-row"><span class="lab" title="${esc(d.k)}">${esc(d.k)}</span><div class="bar-track"><div class="bar-fill ${accent?'accent':''}" style="width:${Math.round(d.v/max*100)}%"></div></div><span class="amt">${money(d.v)}</span></div>`).join('')+'</div>';
 }
 function renderDashboard(){
-  fillMonthSelect($('#dashMonth'),db.sales.map(s=>s.date).concat(db.expenses.map(e=>e.date)));
+  fillMonthSelect($('#dashMonth'),db.sales.map(s=>s.date).concat(db.expenses.map(e=>expPeriod(e))));
   const mo=$('#dashMonth').value,range=$('#dashRange').value;
   $('#dashRange').disabled=!!mo;
   const inSel=d=> mo? d.slice(0,7)===mo : inRange(d,range);
-  const sales=db.sales.filter(s=>inSel(s.date)),exps=db.expenses.filter(e=>inSel(e.date));
+  const sales=db.sales.filter(s=>inSel(s.date)),exps=db.expenses.filter(e=>inSel(expDateForFilter(e)));
   const totSales=sales.reduce((a,s)=>a+s.net,0),collected=sales.reduce((a,s)=>a+s.paid,0);
   const outstanding=sales.reduce((a,s)=>a+Math.max(0,s.balance),0),totExp=exps.reduce((a,e)=>a+e.total,0);
   const profit=totSales-totExp,margin=totSales?profit/totSales:0,avg=sales.length?totSales/sales.length:0;
@@ -1959,10 +1987,10 @@ function renderDashboard(){
     kpi('box','','Packages Sold',String(sales.filter(s=>s.pkg).length),'package transactions')
   ].join('');
   // trend: last 6 months across all data
-  const months=[...new Set(db.sales.map(s=>s.date.slice(0,7)).concat(db.expenses.map(e=>e.date.slice(0,7))))].sort().slice(-6);
+  const months=[...new Set(db.sales.map(s=>s.date.slice(0,7)).concat(db.expenses.map(e=>expPeriod(e))))].sort().slice(-6);
   if(!months.length){$('#trendChart').innerHTML=emptyState('trend','No activity yet','Add sales and expenses to see the monthly trend.');}
   else{
-    const trend=months.map(ym=>({ym,s:db.sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0),e:db.expenses.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.total,0)}));
+    const trend=months.map(ym=>({ym,s:db.sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0),e:db.expenses.filter(x=>expPeriod(x)===ym).reduce((a,x)=>a+x.total,0)}));
     const tmax=Math.max(1,...trend.map(t=>Math.max(t.s,t.e)));
     $('#trendChart').innerHTML='<div class="combo">'+trend.map(t=>`<div class="mcol"><div class="pair"><div class="b s" style="height:${Math.round(t.s/tmax*85)}%" title="Sales ${money(t.s)}">${t.s?`<span class="bval">${moneyK(t.s)}</span>`:''}</div><div class="b e" style="height:${Math.round(t.e/tmax*85)}%" title="Expenses ${money(t.e)}">${t.e?`<span class="bval">${moneyK(t.e)}</span>`:''}</div></div><div class="mlab">${MN[t.ym.slice(5,7)]}</div></div>`).join('')+'</div><div class="legend"><span><i style="background:var(--primary)"></i>Sales</span><span><i style="background:var(--accent)"></i>Expenses</span></div>';
   }
@@ -2016,7 +2044,7 @@ $('#sdMonth').addEventListener('change',renderSalesDash);
 function renderAnalytics(){
   const sales=db.sales,exps=db.expenses;
   const totSales=sales.reduce((a,s)=>a+s.net,0),totExp=exps.reduce((a,e)=>a+e.total,0),profit=totSales-totExp;
-  const months=[...new Set(sales.map(s=>s.date.slice(0,7)).concat(exps.map(e=>e.date.slice(0,7))))].sort();
+  const months=[...new Set(sales.map(s=>s.date.slice(0,7)).concat(exps.map(e=>expPeriod(e))))].sort();
   const avgMonth=months.length?totSales/months.length:0;
   const custWithSales=new Set(sales.map(s=>s.cid)).size;
   const repeat=Object.entries(sales.reduce((m,s)=>{m[s.cid]=(m[s.cid]||0)+1;return m;},{})).filter(([k,v])=>v>1).length;
@@ -2033,7 +2061,7 @@ function renderAnalytics(){
   // monthly table with growth
   let prev=null;
   const rows=months.map(ym=>{const s=sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0);
-    const e=exps.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.total,0);
+    const e=exps.filter(x=>expPeriod(x)===ym).reduce((a,x)=>a+x.total,0);
     const g=prev!=null&&prev>0?((s-prev)/prev*100):null;prev=s;
     return {ym,s,e,p:s-e,m:s?(s-e)/s:0,g};});
   $('#anMonthly').innerHTML=`<table><thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">MoM Growth</th></tr></thead><tbody>${rows.map(r=>`<tr>
@@ -2066,15 +2094,123 @@ function renderAnalytics(){
 function anStat(label,val){return `<div class="bar-row" style="grid-template-columns:1fr auto"><span class="lab" style="color:var(--ink-2)">${esc(label)}</span><span class="amt">${esc(val)}</span></div>`;}
 function analyticsReport(){
   const sales=db.sales,exps=db.expenses;
-  const months=[...new Set(sales.map(s=>s.date.slice(0,7)).concat(exps.map(e=>e.date.slice(0,7))))].sort();
-  let prev=null;const rows=months.map(ym=>{const s=sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0);const e=exps.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.total,0);const g=prev!=null&&prev>0?((s-prev)/prev*100):'';prev=s;return {ym,s,e,p:s-e,m:s?(s-e)/s*100:0,g};});
+  const months=[...new Set(sales.map(s=>s.date.slice(0,7)).concat(exps.map(e=>expPeriod(e))))].sort();
+  let prev=null;const rows=months.map(ym=>{const s=sales.filter(x=>x.date.startsWith(ym)).reduce((a,x)=>a+x.net,0);const e=exps.filter(x=>expPeriod(x)===ym).reduce((a,x)=>a+x.total,0);const g=prev!=null&&prev>0?((s-prev)/prev*100):'';prev=s;return {ym,s,e,p:s-e,m:s?(s-e)/s*100:0,g};});
   return {name:'Analytics',title:'Monthly Performance Analytics',file:'Visage_Analytics_'+nowFile(),filters:[],rows,
     cols:[{l:'Month',g:r=>r.ym},{l:'Revenue',g:r=>r.s,num:true,total:true},{l:'Cost',g:r=>r.e,num:true,total:true},
       {l:'Profit',g:r=>r.p,num:true,total:true},{l:'Margin %',g:r=>Math.round(r.m*10)/10,num:true},{l:'MoM Growth %',g:r=>r.g===''?'':Math.round(r.g*10)/10,num:true}]};
 }
 function exportAnalyticsXls(){const r=analyticsReport();if(!r.rows.length){toast('No data to export','alert');return;}exportXls(r);}
+/* ============ REPORTS (monthly performance summary) ============ */
+// Sales are attributed by transaction date; expenses by the period encoded in their ID (expPeriod).
+function rpMonthMetrics(ym){
+  const sales=db.sales.filter(s=>s.date.slice(0,7)===ym);
+  const exps=db.expenses.filter(e=>expPeriod(e)===ym);
+  const totSales=sales.reduce((a,s)=>a+s.net,0),collected=sales.reduce((a,s)=>a+s.paid,0);
+  const outstanding=sales.reduce((a,s)=>a+Math.max(0,s.balance),0);
+  const totExp=exps.reduce((a,e)=>a+e.total,0),wht=exps.reduce((a,e)=>a+(e.wht||0),0),vat=exps.reduce((a,e)=>a+(e.vat||0),0);
+  const profit=totSales-totExp,margin=totSales?profit/totSales:0,avg=sales.length?totSales/sales.length:0;
+  const pkgs=sales.filter(s=>s.pkg).length,cids=[...new Set(sales.map(s=>s.cid).filter(Boolean))];
+  return {ym,sales,exps,totSales,collected,outstanding,totExp,wht,vat,profit,margin,avg,pkgs,cids};
+}
+function custFirstSale(){const m={};db.sales.forEach(s=>{if(!s.cid)return;if(!m[s.cid]||s.date<m[s.cid])m[s.cid]=s.date;});return m;}
+function rpYearRows(year){let prev=null;const rows=[];for(let mm=1;mm<=12;mm++){const ym=year+'-'+String(mm).padStart(2,'0');const M=rpMonthMetrics(ym);const g=prev!=null&&prev>0?((M.totSales-prev)/prev*100):null;prev=M.totSales;rows.push({ym,mm,s:M.totSales,col:M.collected,out:M.outstanding,e:M.totExp,wht:M.wht,p:M.profit,m:M.margin,g});}return rows;}
+function rpYearTableHtml(year){
+  const rows=rpYearRows(year);
+  const tot=rows.reduce((a,r)=>({s:a.s+r.s,col:a.col+r.col,out:a.out+r.out,e:a.e+r.e,wht:a.wht+r.wht,p:a.p+r.p}),{s:0,col:0,out:0,e:0,wht:0,p:0});
+  const body=rows.map(r=>`<tr><td><strong>${MN[String(r.mm).padStart(2,'0')]}</strong></td><td class="num">${money(r.s)}</td><td class="num">${money(r.col)}</td><td class="num">${money(r.out)}</td><td class="num">${money(r.e)}</td><td class="num">${money(r.wht)}</td><td class="num"><strong style="color:${r.p<0?'var(--bad)':'var(--ok)'}">${money(r.p)}</strong></td><td class="num">${(r.m*100).toFixed(1)}%</td><td class="num">${r.g==null?'—':`<span style="color:${r.g<0?'var(--bad)':'var(--ok)'}">${r.g>0?'+':''}${r.g.toFixed(1)}%</span>`}</td></tr>`).join('');
+  const totRow=`<tr style="background:var(--surface-2)"><td><strong>Total</strong></td><td class="num"><strong>${money(tot.s)}</strong></td><td class="num"><strong>${money(tot.col)}</strong></td><td class="num"><strong>${money(tot.out)}</strong></td><td class="num"><strong>${money(tot.e)}</strong></td><td class="num"><strong>${money(tot.wht)}</strong></td><td class="num"><strong>${money(tot.p)}</strong></td><td class="num"><strong>${(tot.s?tot.p/tot.s*100:0).toFixed(1)}%</strong></td><td></td></tr>`;
+  return `<table><thead><tr><th>Month</th><th class="num">Sales</th><th class="num">Collected</th><th class="num">Outstanding</th><th class="num">Expenses</th><th class="num">WHT</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">MoM</th></tr></thead><tbody>${body}${totRow}</tbody></table>`;
+}
+function renderReports(){
+  const months=[...new Set(db.sales.map(s=>s.date.slice(0,7)).concat(db.expenses.map(e=>expPeriod(e))))].filter(Boolean).sort();
+  const years=[...new Set(months.map(m=>m.slice(0,4)))].sort();
+  const mSel=$('#rpMonth');if(!mSel)return;
+  if(!months.length){mSel.innerHTML='<option value="">No data</option>';$('#rpYear').innerHTML='<option value="">—</option>';$('#rpKpis').innerHTML='';$('#rpDetailTitle').textContent='';['rpPnl','rpCat','rpSvc','rpPm','rpCust','rpTop','rpYear2'].forEach(id=>$('#'+id).innerHTML=emptyState('doc','No data yet','Record sales and expenses to build reports.'));return;}
+  const curM=mSel.value&&months.includes(mSel.value)?mSel.value:months[months.length-1];
+  mSel.innerHTML=months.slice().reverse().map(m=>`<option value="${m}" ${m===curM?'selected':''}>${monthLabel(m)}</option>`).join('');
+  const ym=mSel.value;
+  const ySel=$('#rpYear');const curY=ySel.value&&years.includes(ySel.value)?ySel.value:ym.slice(0,4);
+  ySel.innerHTML=years.slice().reverse().map(y=>`<option value="${y}" ${y===curY?'selected':''}>${y}</option>`).join('');
+  const year=ySel.value;
+  const M=rpMonthMetrics(ym);
+  $('#rpDetailTitle').textContent='Monthly Report — '+monthLabel(ym);
+  const kpi=(icon,cls,lbl,val,meta)=>`<div class="kpi ${cls}"><div class="top"><div class="ico">${ic(icon)}</div></div><div class="lbl">${lbl}</div><div class="val tnum">${val}</div><div class="meta">${meta}</div></div>`;
+  $('#rpKpis').innerHTML=[
+    kpi('trend','','Total Sales',money(M.totSales),M.sales.length+' transactions'),
+    kpi('cash','ok','Collected',money(M.collected),'cash received'),
+    kpi('alert','bad','Outstanding',money(M.outstanding),'unpaid balances'),
+    kpi('wallet','accent','Total Expenses',money(M.totExp),M.exps.length+' records'),
+    kpi('receipt',M.profit<0?'bad':'ok','Net Profit',money(M.profit),(M.margin*100).toFixed(1)+'% margin'),
+    kpi('spark','','Avg Sale',money(M.avg),'per transaction')
+  ].join('');
+  const pnl=[['Gross sales',M.totSales],['— Collected',M.collected],['— Outstanding',M.outstanding],['Total expenses (incl. VAT)',M.totExp],['Withholding tax (WHT)',M.wht],['Net profit',M.profit]];
+  $('#rpPnl').innerHTML=`<table><tbody>${pnl.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num"><strong style="color:${k==='Net profit'&&v<0?'var(--bad)':'inherit'}">${money(v)}</strong></td></tr>`).join('')}<tr><td>Profit margin</td><td class="num"><strong>${(M.margin*100).toFixed(1)}%</strong></td></tr></tbody></table>`;
+  $('#rpCat').innerHTML=barChart(groupSum(M.sales,s=>s.cat,s=>s.net));
+  const svc=groupSum(M.sales,s=>s.svc,s=>s.net).slice(0,10);
+  $('#rpSvc').innerHTML=svc.length?`<table><thead><tr><th>Service / Product</th><th class="num">Qty</th><th class="num">Revenue</th></tr></thead><tbody>${svc.map(x=>{const n=M.sales.filter(s=>s.svc===x.k).length;return `<tr><td>${esc(x.k)}</td><td class="num">${n}</td><td class="num"><strong>${money(x.v)}</strong></td></tr>`;}).join('')}</tbody></table>`:emptyState('spark','No sales','No sales this month.');
+  $('#rpPm').innerHTML=barChart(groupSum(M.sales,s=>s.pm,s=>s.paid));
+  const first=custFirstSale();const served=M.cids.length;const isNew=cid=>first[cid]&&first[cid].slice(0,7)===ym;const newC=M.cids.filter(isNew).length,retC=served-newC;
+  $('#rpCust').innerHTML=`<div class="bars">
+    ${anStat('Customers served',String(served))}
+    ${anStat('New customers',String(newC))}
+    ${anStat('Returning customers',String(retC))}
+    ${anStat('Avg spend / customer',money(served?M.totSales/served:0))}
+    ${anStat('Packages sold',String(M.pkgs))}</div>`;
+  const top=groupSum(M.sales,s=>s.cid,s=>s.net).slice(0,8);
+  $('#rpTop').innerHTML=top.length?`<table><thead><tr><th>Customer</th><th class="num">Visits</th><th class="num">Spend</th><th>Type</th></tr></thead><tbody>${top.map(c=>{const v=M.sales.filter(s=>s.cid===c.k).length;return `<tr><td>${esc(custName(c.k))} <span class="muted">${esc(c.k)}</span></td><td class="num">${v}</td><td class="num"><strong>${money(c.v)}</strong></td><td>${isNew(c.k)?'<span class="pill paid">New</span>':'<span class="pill reimbursed">Returning</span>'}</td></tr>`;}).join('')}</tbody></table>`:emptyState('users','No customers','No customer sales this month.');
+  $('#rpYearTitle').textContent=year+' — Monthly Comparison';
+  $('#rpYear2').innerHTML=rpYearTableHtml(year);
+}
+$('#rpMonth')&&$('#rpMonth').addEventListener('change',renderReports);
+$('#rpYear')&&$('#rpYear').addEventListener('change',renderReports);
+function exportReportXls(){
+  const year=($('#rpYear')&&$('#rpYear').value)||String(new Date().getFullYear());
+  const rows=rpYearRows(year);
+  if(!rows.some(r=>r.s||r.e)){toast('No data for '+year,'alert');return;}
+  const rep={name:'Report '+year,title:'Monthly Performance Report — '+year,file:'Visage_Report_'+year+'_'+nowFile(),filters:['Year '+year,'Sales by date; expenses by ID period'],rows,
+    cols:[{l:'Month',g:r=>MN[String(r.mm).padStart(2,'0')]+' '+year},{l:'Sales',g:r=>r.s,num:true,total:true},{l:'Collected',g:r=>r.col,num:true,total:true},{l:'Outstanding',g:r=>r.out,num:true,total:true},{l:'Expenses',g:r=>r.e,num:true,total:true},{l:'WHT',g:r=>r.wht,num:true,total:true},{l:'Profit',g:r=>r.p,num:true,total:true},{l:'Margin %',g:r=>Math.round(r.m*1000)/10,num:true},{l:'MoM Growth %',g:r=>r.g==null?'':Math.round(r.g*10)/10,num:true}]};
+  exportXls(rep);
+}
+function printMonthlyReport(){
+  const ym=$('#rpMonth')&&$('#rpMonth').value;if(!ym){toast('No data to print','alert');return;}
+  const year=($('#rpYear')&&$('#rpYear').value)||ym.slice(0,4);
+  const M=rpMonthMetrics(ym),c=(db.master&&db.master.clinic)||{};
+  const cat=groupSum(M.sales,s=>s.cat,s=>s.net),svc=groupSum(M.sales,s=>s.svc,s=>s.net).slice(0,10),pm=groupSum(M.sales,s=>s.pm,s=>s.paid);
+  const first=custFirstSale(),served=M.cids.length,isNew=cid=>first[cid]&&first[cid].slice(0,7)===ym,newC=M.cids.filter(isNew).length;
+  const top=groupSum(M.sales,s=>s.cid,s=>s.net).slice(0,8),yrows=rpYearRows(year);
+  const m0=n=>'฿'+(Math.round((n||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2});
+  const pnlRows=[['Gross sales',M.totSales],['Collected',M.collected],['Outstanding',M.outstanding],['Total expenses (incl. VAT)',M.totExp],['Withholding tax (WHT)',M.wht],['Net profit',M.profit]].map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${m0(v)}</td></tr>`).join('')+`<tr><td>Profit margin</td><td class="n">${(M.margin*100).toFixed(1)}%</td></tr>`;
+  const catRows=cat.length?cat.map(x=>`<tr><td>${esc(x.k)}</td><td class="n">${m0(x.v)}</td></tr>`).join(''):'<tr><td colspan="2">No sales</td></tr>';
+  const svcRows=svc.length?svc.map(x=>{const n=M.sales.filter(s=>s.svc===x.k).length;return `<tr><td>${esc(x.k)}</td><td class="n">${n}</td><td class="n">${m0(x.v)}</td></tr>`;}).join(''):'<tr><td colspan="3">No sales</td></tr>';
+  const pmRows=pm.length?pm.map(x=>`<tr><td>${esc(x.k)}</td><td class="n">${m0(x.v)}</td></tr>`).join(''):'<tr><td colspan="2">—</td></tr>';
+  const topRows=top.length?top.map(x=>{const v=M.sales.filter(s=>s.cid===x.k).length;return `<tr><td>${esc(custName(x.k))} (${esc(x.k)})</td><td class="n">${v}</td><td class="n">${m0(x.v)}</td><td>${isNew(x.k)?'New':'Returning'}</td></tr>`;}).join(''):'<tr><td colspan="4">No customers</td></tr>';
+  const yBody=yrows.map(r=>`<tr><td>${MN[String(r.mm).padStart(2,'0')]}</td><td class="n">${m0(r.s)}</td><td class="n">${m0(r.col)}</td><td class="n">${m0(r.out)}</td><td class="n">${m0(r.e)}</td><td class="n">${m0(r.wht)}</td><td class="n">${m0(r.p)}</td><td class="n">${(r.m*100).toFixed(1)}%</td></tr>`).join('');
+  const yt=yrows.reduce((a,r)=>({s:a.s+r.s,col:a.col+r.col,out:a.out+r.out,e:a.e+r.e,wht:a.wht+r.wht,p:a.p+r.p}),{s:0,col:0,out:0,e:0,wht:0,p:0});
+  const meta='Visage Clinic'+(c.nameTh?' — '+c.nameTh:'')+' &nbsp;·&nbsp; Generated '+nowStamp();
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>Monthly Report '+esc(monthLabel(ym))+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:20px;margin:0 0 4px;color:#111;border-bottom:2px solid #a97c43;padding-bottom:6px}.meta{color:#666;font-size:10px;margin:4px 0 16px}'+
+    'h2{font-size:13px;margin:18px 0 6px;color:#a97c43}.grid{display:flex;gap:18px;flex-wrap:wrap}.grid>div{flex:1;min-width:240px}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:6px}th,td{border:1px solid #d6d6d3;padding:4px 7px;text-align:left}'+
+    'th{background:#111;color:#fff;font-size:10px}td.n,th.n{text-align:right;white-space:nowrap}tr:nth-child(even) td{background:#fafafa}'+
+    'tfoot td,.tot td{background:#ECECEC;font-weight:bold;border-top:2px solid #111}'+
+    '@media print{body{margin:9mm}@page{size:portrait;margin:9mm}}'+
+    '</style></head><body>'+
+    '<h1>Monthly Performance Report — '+esc(monthLabel(ym))+'</h1><div class="meta">'+meta+'</div>'+
+    '<div class="grid"><div><h2>Profit &amp; Loss</h2><table><tbody>'+pnlRows+'</tbody></table></div>'+
+    '<div><h2>Customers</h2><table><tbody><tr><td>Customers served</td><td class="n">'+served+'</td></tr><tr><td>New customers</td><td class="n">'+newC+'</td></tr><tr><td>Returning customers</td><td class="n">'+(served-newC)+'</td></tr><tr><td>Packages sold</td><td class="n">'+M.pkgs+'</td></tr><tr><td>Avg spend / customer</td><td class="n">'+m0(served?M.totSales/served:0)+'</td></tr></tbody></table></div></div>'+
+    '<div class="grid"><div><h2>Sales by Category</h2><table><tbody>'+catRows+'</tbody></table></div>'+
+    '<div><h2>Payment Mix</h2><table><tbody>'+pmRows+'</tbody></table></div></div>'+
+    '<h2>Top Services / Products</h2><table><thead><tr><th>Service / Product</th><th class="n">Qty</th><th class="n">Revenue</th></tr></thead><tbody>'+svcRows+'</tbody></table>'+
+    '<h2>Top Spenders</h2><table><thead><tr><th>Customer</th><th class="n">Visits</th><th class="n">Spend</th><th>Type</th></tr></thead><tbody>'+topRows+'</tbody></table>'+
+    '<h2>'+year+' — Monthly Comparison</h2><table><thead><tr><th>Month</th><th class="n">Sales</th><th class="n">Collected</th><th class="n">Outstanding</th><th class="n">Expenses</th><th class="n">WHT</th><th class="n">Profit</th><th class="n">Margin</th></tr></thead><tbody>'+yBody+
+    '<tr class="tot"><td>Total</td><td class="n">'+m0(yt.s)+'</td><td class="n">'+m0(yt.col)+'</td><td class="n">'+m0(yt.out)+'</td><td class="n">'+m0(yt.e)+'</td><td class="n">'+m0(yt.wht)+'</td><td class="n">'+m0(yt.p)+'</td><td class="n">'+(yt.s?(yt.p/yt.s*100).toFixed(1):'0.0')+'%</td></tr>'+
+    '</tbody></table></body></html>';
+  printHtmlDoc(doc);
+}
 /* ============ RENDER ALL ============ */
-function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderMaster();}
+function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderMaster();}
 
 /* ============ ABOUT DOC ============ */
 function fieldRow(n,d,t,mo,ex,va){return `<tr><td><strong>${n}</strong></td><td>${d}</td><td>${t}</td><td><span class="dtag ${mo==='M'?'m':'o'}">${mo==='M'?'Mandatory':'Optional'}</span></td><td>${ex}</td><td>${va}</td></tr>`;}
