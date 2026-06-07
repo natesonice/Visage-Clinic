@@ -203,6 +203,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 .bar-track{background:var(--surface-3);border-radius:6px;height:18px;overflow:hidden}
 .bar-fill{height:100%;background:var(--bar);border-radius:6px;min-width:3px;transition:width .6s cubic-bezier(.22,1,.36,1)}
 .bar-fill.accent{background:var(--bar-accent)}
+.pkgbar{height:8px;width:100%;min-width:80px;max-width:160px;background:var(--surface-3);border-radius:6px;overflow:hidden;display:inline-block;vertical-align:middle}
+.pkgbar>span{display:block;height:100%;background:var(--bar);border-radius:6px;transition:width .5s cubic-bezier(.22,1,.36,1)}
+.pkgbar.done>span{background:var(--ok)}
+.pkgbar.low>span{background:var(--bad)}
 .bar-row .amt{text-align:right;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 .combo{display:flex;align-items:flex-end;gap:var(--s4);height:210px;padding:38px 2px 0}
 .combo .mcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
@@ -422,6 +426,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="customers">__I_users__ Customers</a>
       <a data-view="services">__I_spark__ Service Catalog</a>
       <a data-view="promos">__I_megaphone__ Promotions</a>
+      <a data-view="packages">__I_stack__ Packages</a>
       <div class="lbl">Configuration</div>
       <a data-view="master">__I_sliders__ Master Data</a>
       <a data-view="about">__I_doc__ About &amp; Design</a>
@@ -518,6 +523,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
           <select id="rpYear" onchange="renderReports()" title="Year for the comparison table"></select>
           <button class="btn sec" onclick="printMonthlyReport()" title="Print the monthly report">__I_print__ Print</button>
           <button class="btn sec" onclick="exportReportXls()" title="Download the full-year monthly table as Excel">__I_sheet__ Excel</button></div>
+        <div class="card" style="margin-bottom:var(--s4)">
+          <div class="hd"><h3>Daily Summary</h3><div style="display:flex;gap:8px;align-items:center"><input type="date" id="rpDay" onchange="renderDaily()" title="Day to summarise"><button class="btn sec sm" onclick="printDailyReport()" title="Print the daily summary">__I_print__ Print day</button></div></div>
+          <div class="bd"><div class="kpis" id="dayKpis"></div><div id="dayBody"></div></div>
+        </div>
         <h3 class="rp-h" id="rpDetailTitle" style="margin:2px 0 var(--s3);font-family:var(--font-serif)"></h3>
         <div class="kpis" id="rpKpis"></div>
         <div class="dash-grid g2">
@@ -633,6 +642,22 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
         <div class="card"><div class="bd flush tbl-wrap" id="promoTable"></div></div>
       </section>
 
+      <!-- PACKAGES -->
+      <section id="view-packages" class="view">
+        <div class="phead"><div><h2>Package Management</h2><p>Track used &amp; remaining sessions for customer courses</p></div><div class="grow"></div>
+          <button class="btn sec" onclick="printCustomerPackages()" title="Per-customer report: packages, session dates &amp; remaining">__I_doc__ Customer Report</button>
+          <button class="btn sec" onclick="printPackages()" title="Print the filtered package list">__I_print__ Print</button>
+          <button class="btn sec" onclick="exportPackagesXls()" title="Download packages as an Excel file">__I_sheet__ Excel</button>
+          <button class="btn" onclick="openPackage()">__I_plus__ New Package</button></div>
+        <div class="kpis" id="pkgKpis"></div>
+        <div class="toolbar">
+          <div class="field-search">__I_search__<input id="pkgSearch" placeholder="Search customer, course…" oninput="renderPackages()"></div>
+          <select id="pkgStatus" onchange="renderPackages()"><option value="">All statuses</option><option>Active</option><option>Expired</option><option>Completed</option></select>
+          <div class="grow"></div><span class="count" id="pkgCount"></span>
+        </div>
+        <div class="card"><div class="bd flush tbl-wrap" id="pkgTable"></div></div>
+      </section>
+
       <!-- MASTER -->
       <section id="view-master" class="view">
         <div class="phead"><div><h2>Master Data</h2><p>Edit these lists to update every dropdown across the app</p></div><div class="grow"></div>
@@ -713,7 +738,7 @@ const BRANCH='Visage Clinic — Main';
 let db=null;
 
 const MASTER_DEFAULT={
-  serviceCategories:["Laser ขน พนักงาน","Laser ขน แพทย์","Toroidal RF","Starwalker","Erbium","Holistic Melaclear","Fotona","Micro Coring","ED Treatment","Retail Product","Venus Viva","Botox","Laser & Energy","IV & Drips","Filler & Skinbooster","Ulthera","Tesla PMS","Anal Treatment","Intima Wave"],
+  serviceCategories:["Laser ขน พนักงาน","Laser ขน แพทย์","Toroidal RF","Starwalker","Erbium","Holistic Melaclear","Fotona","Micro Coring","ED Treatment","Retail Product","Venus Viva","Botox","Laser & Energy","IV & Drips","Filler & Skinbooster","Ulthera","Tesla PMS","Anal Treatment","Intima Wave","Other"],
   staff:["Dr. Lim (Doctor)","Dr. Tan (Doctor)","Nurse Aisha","Therapist Mei","Beautician Sara"],
   salespersons:["Front Desk – Karen","Consultant – Wei","Manager – Anita"],
   discountTypes:["None","Member Discount","Promotion","Package Deal","Staff Discount","Voucher"],
@@ -737,8 +762,8 @@ const SERVICES_DEFAULT=[];
 function vendorsFromNames(names){return names.filter(n=>n&&n!=='Other').map((n,i)=>({id:'VN-'+String(i+1).padStart(3,'0'),name:n,contact:'',phone:'',email:'',taxId:'',terms:'',notes:''}));}
 function emptyDB(){
   return {master:JSON.parse(JSON.stringify(MASTER_DEFAULT)),services:JSON.parse(JSON.stringify(SERVICES_DEFAULT)),
-    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],
-    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001}};
+    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],
+    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001}};
 }
 /* ============ CLOUD (Supabase) ============ */
 const CFG_KEY='visage_sb_cfg', SES_KEY='visage_sb_session';
@@ -827,6 +852,7 @@ function dbToRecords(){
   db.items.forEach(x=>recs.push({kind:'item',id:String(x.id),data:x}));
   db.moves.forEach(x=>recs.push({kind:'move',id:String(x.id),data:x}));
   db.promos.forEach(x=>recs.push({kind:'promo',id:String(x.id),data:x}));
+  (db.packages||[]).forEach(x=>recs.push({kind:'package',id:String(x.id),data:x}));
   db.services.forEach(s=>recs.push({kind:'service',id:String(s.name),data:s}));
   recs.push({kind:'meta',id:'master',data:db.master});
   recs.push({kind:'meta',id:'seq',data:db.seq});
@@ -843,6 +869,7 @@ function applyRecords(rows){
     else if(r.kind==='item')d.items.push(x);
     else if(r.kind==='move')d.moves.push(x);
     else if(r.kind==='promo')d.promos.push(x);
+    else if(r.kind==='package')(d.packages||(d.packages=[])).push(x);
     else if(r.kind==='service')d.services.push(x);
     else if(r.kind==='meta'&&r.id==='master'){d.master=Object.assign({},d.master,x);if(!d.master.admins)d.master.admins=[];}
     else if(r.kind==='meta'&&r.id==='seq')d.seq=Object.assign({},d.seq,x);});
@@ -958,12 +985,17 @@ function fillMonthSelect(sel,dates){const cur=sel.value;const ms=[...new Set(dat
   sel.innerHTML=ph+ms.map(m=>`<option ${m===cur?'selected':''} value="${m}">${monthLabel(m)}</option>`).join('');}
 // Accounting period for an expense comes from its ID (EX-YYMM-NNN, e.g. EX-2605-001 = 2026-05),
 // not the date on the tax invoice/receipt. Falls back to the date if the ID has no encoded period.
-function expPeriod(e){const m=String((e&&e.id)||'').match(/-(\d{2})(\d{2})-\d+$/);if(m&&+m[2]>=1&&+m[2]<=12)return '20'+m[1]+'-'+m[2];return (e&&e.date||'').slice(0,7);}
+// Accounting period from the expense ID: new format YYMM-NNN (e.g. 2605-001) or legacy EX-YYMM-NNN. Falls back to the document date.
+function expPeriod(e){const m=String((e&&e.id)||'').match(/(?:^|-)(\d{2})(\d{2})-\d+$/);if(m&&+m[2]>=1&&+m[2]<=12)return '20'+m[1]+'-'+m[2];return (e&&e.date||'').slice(0,7);}
 // A date that represents the expense's accounting period (mid-month), for range filters like "This month" / "Last 90 days".
 function expDateForFilter(e){const p=expPeriod(e);return p?p+'-15':((e&&e.date)||'');}
+// Expense ID generation: YYMM-RunningNo (running number is per accounting period, e.g. 2605-001).
+function periodToYYMM(p){return (p||'').slice(2,4)+(p||'').slice(5,7);}
+function expRunningNext(period){let max=0;db.expenses.forEach(e=>{if(expPeriod(e)!==period)return;const m=String(e.id).match(/(\d+)$/);if(m)max=Math.max(max,+m[1]);});return String(max+1).padStart(3,'0');}
+function newExpId(period){const yymm=periodToYYMM(period);return yymm.length===4?yymm+'-'+expRunningNext(period):'';}
 
 /* ============ NAV / THEME ============ */
-const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',master:'Master Data',about:'About & Design'};
+const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',master:'Master Data',about:'About & Design'};
 function go(view){
   if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'))view='salesdash';
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
@@ -990,13 +1022,19 @@ function markBad(id,bad){const el=$('#'+id);if(!el)return;const f=el.closest('.f
 function errHtml(msg){return `<div class="err">${ic('alert')}<span>${esc(msg)}</span></div>`;}
 
 /* ============ SALES FORM ============ */
+// Sales transaction number: combined skin + ED stream, format SYYMM-RunningNo (4 digits, per month by txn date). e.g. S2605-0001
+function saleYYMM(date){return (date||'').slice(2,4)+(date||'').slice(5,7);}
+function saleRunningNext(yymm){let max=0;db.sales.forEach(s=>{const m=String(s.inv).match(/^S(\d{2})(\d{2})-(\d+)/);if(m&&m[1]+m[2]===yymm)max=Math.max(max,+m[3]);});return String(max+1).padStart(4,'0');}
+function newSaleId(date){const yymm=saleYYMM(date);return yymm.length===4?'S'+yymm+'-'+saleRunningNext(yymm):'';}
 function openSale(existing){
   const m=db.master,s=existing||{};
   const svcOptsFor=cat=>db.services.filter(x=>!cat||x.cat===cat).map(x=>x.name);
+  const _today=new Date().toISOString().slice(0,10);
+  const _initInv=s.inv||newSaleId(s.date||_today);
   const body=`
    <div class="grid3">
-     <div class="field"><label>Invoice No</label><input id="f_inv" class="calc" readonly value="${esc(s.inv||('INV-'+db.seq.inv))}"></div>
-     <div class="field"><label>Txn Date<span class="req">*</span></label><input type="date" id="f_date" value="${s.date||new Date().toISOString().slice(0,10)}">${errHtml('Required')}</div>
+     <div class="field"><label>Invoice No<span class="auto">AUTO</span></label><input id="f_inv" class="calc" readonly value="${esc(_initInv)}"></div>
+     <div class="field"><label>Txn Date<span class="req">*</span></label><input type="date" id="f_date" value="${s.date||_today}">${errHtml('Required')}</div>
      <div class="field"><label>Branch</label><input id="f_branch" class="calc" readonly value="${BRANCH}"></div>
    </div>
    <div class="grid2">
@@ -1030,6 +1068,7 @@ function openSale(existing){
     const net=Math.max(0,qty*unit-disc);$('#f_net').value=money(net);
     const paid=+$('#f_paid').value||0,bal=net-paid;$('#f_bal').value=money(bal);
     let st;if(net===0)st='';else if(paid<=0)st='Unpaid';else if(bal>0.001)st='Partially Paid';else st='Paid';$('#f_status').value=st;};
+  if(!existing){$('#f_date').addEventListener('change',()=>{if($('#f_date').value)$('#f_inv').value=newSaleId($('#f_date').value);});}
   $('#f_cid').addEventListener('change',e=>{const cid=(e.target.value||'').split(' — ')[0];$('#f_cname').value=custName(cid);});
   $('#f_cat').addEventListener('change',e=>{$('#f_svc').innerHTML=opts(svcOptsFor(e.target.value));$('#f_pkg').value='';$('#f_unit').value='';recalc();});
   $('#f_svc').addEventListener('change',e=>{const sv=db.services.find(x=>x.name===e.target.value);if(sv){$('#f_unit').value=sv.price;$('#f_pkg').value=sv.pkg?'Yes':'No';if(!$('#f_cat').value)$('#f_cat').value=sv.cat;}recalc();});
@@ -1050,21 +1089,25 @@ function saveSale(editInv){
   const rec={inv:g('f_inv'),date:g('f_date'),branch:BRANCH,cid,cat:g('f_cat'),svc:g('f_svc'),pkg:sv?sv.pkg:false,qty,unit,dtype:g('f_dtype'),disc,net,pm:g('f_pm'),paid,balance:bal,status:st,rem:g('f_rem')};
   if(editInv){db.sales[db.sales.findIndex(x=>x.inv===editInv)]=rec;}else{db.sales.unshift(rec);db.seq.inv++;}
   applySaleStock(rec); // auto-deduct consumed stock per the service recipe
+  syncPackageForSale(rec); // create/update a package balance for multi-session courses
   save();renderAll();closeModal();
   const used=(sv&&sv.recipe&&sv.recipe.length)?' · stock updated':'';
   toast((editInv?'Sale updated':'Sale recorded')+used,'check');
 }
 function editSale(inv){openSale(db.sales.find(x=>x.inv===inv));}
-function delSale(inv){if(!confirm('Delete sale '+inv+'?'))return;removeMovesByRef(inv);db.sales=db.sales.filter(x=>x.inv!==inv);save();renderAll();toast('Sale deleted','check');}
+function delSale(inv){if(!confirm('Delete sale '+inv+'?'))return;removeMovesByRef(inv);removePackageForSale(inv);db.sales=db.sales.filter(x=>x.inv!==inv);save();renderAll();toast('Sale deleted','check');}
 
 /* ============ EXPENSE FORM ============ */
 function openExpense(existing){
   const m=db.master,s=existing||{};
+  const _today=new Date().toISOString().slice(0,10);
+  const _period=existing?(expPeriod(s)||_today.slice(0,7)):_today.slice(0,7);
+  const _initId=s.id||newExpId(_period);
   const body=`
    <div class="grid3">
-     <div class="field"><label>Expense ID</label><input id="e_id" class="calc" readonly value="${esc(s.id||('EXP-'+db.seq.exp))}"></div>
-     <div class="field"><label>Expense Date<span class="req">*</span></label><input type="date" id="e_date" value="${s.date||new Date().toISOString().slice(0,10)}">${errHtml('Required')}</div>
-     <div class="field"><label>Branch</label><input id="e_branch" class="calc" readonly value="${BRANCH}"></div>
+     <div class="field"><label>Expense ID<span class="auto">AUTO</span></label><input id="e_id" class="calc" readonly value="${esc(_initId)}"></div>
+     <div class="field"><label>Document Date<span class="req">*</span><span class="hint" style="font-weight:400;color:var(--ink-3)"> (on tax invoice / receipt)</span></label><input type="date" id="e_date" value="${s.date||_today}">${errHtml('Required')}</div>
+     <div class="field"><label>Accounting Period<span class="req">*</span><span class="hint" style="font-weight:400;color:var(--ink-3)"> (sets the ID)</span></label><input type="month" id="e_period" value="${_period}" ${existing?'disabled':''}>${errHtml('Required')}</div>
    </div>
    <div class="grid2">
      <div class="field"><label>Category<span class="req">*</span></label><select id="e_cat">${opts(m.expenseCategories,s.cat)}</select>${errHtml('Required')}</div>
@@ -1099,7 +1142,7 @@ function openExpense(existing){
      <div class="dnote" id="e_invnote"></div></div>
    ${docSlotsHtml(s)}
    <div class="field"><label>Remarks</label><textarea id="e_rem" rows="2" placeholder="Optional notes…">${esc(s.rem||'')}</textarea></div>`;
-  _pendingDocs={};_docExpId=s.id||('EXP-'+db.seq.exp);
+  _pendingDocs={};_docExpId=_initId;
   const footer=`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveExpense(${existing?`'${s.id}'`:'null'})">${existing?'Update':'Save'} expense</button>`;
   showModal(existing?'Edit Expense · '+s.id:'New Expense',body,footer);
   const recalc=()=>{const amt=+$('#e_amt').value||0,tr=(+$('#e_tax').value||0)/100,wr=(+$('#e_wht').value||0)/100;
@@ -1112,12 +1155,18 @@ function openExpense(existing){
     $('#e_invnote').textContent=tracking?(q>0?'Adds '+q+' to stock'+(q>0?' · unit cost '+money(Math.round(tot/q*100)/100):''):'Will record a purchase movement (set Qty for stock count)'):'';};
   ['e_item','e_itemqty','e_amt','e_tax'].forEach(id=>$('#'+id).addEventListener('input',invupd));
   $('#e_item').addEventListener('change',invupd);invupd();
+  if(!existing){
+    const reId=()=>{const p=$('#e_period').value||_today.slice(0,7);$('#e_id').value=newExpId(p);_docExpId=$('#e_id').value;};
+    $('#e_date').addEventListener('change',()=>{if($('#e_date').value){$('#e_period').value=$('#e_date').value.slice(0,7);reId();}});
+    $('#e_period').addEventListener('change',reId);
+  }
 }
 function saveExpense(editId){
   const g=id=>$('#'+id).value;const amt=+g('e_amt'),tr=(+g('e_tax')||0)/100,wr=(+g('e_wht')||0)/100;let ok=true;
   const req={e_date:g('e_date'),e_cat:g('e_cat'),e_sub:g('e_sub'),e_pm:g('e_pm'),e_resp:g('e_resp'),e_appr:g('e_appr')};
   for(const k in req){const bad=!req[k];markBad(k,bad);if(bad)ok=false;}
   const b=isNaN(amt)||amt<=0;markBad('e_amt',b);if(b)ok=false;
+  if(!editId&&!g('e_id')){markBad('e_period',true);ok=false;}
   if(!ok){toast('Please fix the highlighted fields','alert');return;}
   const tax=amt*tr,wht=amt*wr;const rec={id:g('e_id'),date:g('e_date'),branch:BRANCH,cat:g('e_cat'),sub:g('e_sub'),vendor:g('e_vendor'),pm:g('e_pm'),amt,taxrate:tr,tax,whtrate:wr,wht,total:amt+tax,netpay:amt+tax-wht,ref:g('e_ref'),resp:g('e_resp'),appr:g('e_appr'),rem:g('e_rem')};
   // documents: start from existing flags, apply pending attach/remove
@@ -1388,7 +1437,7 @@ function expensesReport(){
   const f=[];if(mo)f.push('Month '+mo);if(cat)f.push('Category: '+cat);if(ap)f.push('Approval: '+ap);if($('#expSearch').value)f.push('Search: "'+$('#expSearch').value+'"');
   return {name:'Expenses',title:'Expenses Report',file:'Visage_Expenses_'+nowFile(),filters:f,rows,
     cols:[
-     {l:'ID',g:e=>e.id},{l:'Date',g:e=>e.date},{l:'Category',g:e=>e.cat},{l:'Sub-Category',g:e=>e.sub},
+     {l:'ID',g:e=>e.id},{l:'Doc Date',g:e=>e.date},{l:'Period',g:e=>expPeriod(e)},{l:'Category',g:e=>e.cat},{l:'Sub-Category',g:e=>e.sub},
      {l:'Vendor',g:e=>e.vendor||''},{l:'Method',g:e=>e.pm},
      {l:'Amount (excl. VAT)',g:e=>e.amt,num:true,total:true},{l:'VAT',g:e=>e.tax,num:true,total:true},
      {l:'WHT',g:e=>e.wht||0,num:true,total:true},{l:'Total (incl. VAT)',g:e=>e.total,num:true,total:true},
@@ -1612,8 +1661,8 @@ function renderExpenses(){
   $('#expCount').innerHTML=`<b>${rows.length}</b> of ${db.expenses.length} · <b>${money(sum)}</b>${whtSum>0.001?` · WHT <b>${money(whtSum)}</b>`:''}`;
   if(!db.expenses.length){$('#expTable').innerHTML=emptyState('exp','No expenses yet','Record a clinic cost to start tracking spend.',`<button class="btn" onclick="openExpense()">${ic('plus')} New Expense</button>`);return;}
   if(!rows.length){$('#expTable').innerHTML=emptyState('search','No matches','Try a different search or filter.');return;}
-  $('#expTable').innerHTML=`<table><thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Vendor</th><th>Method</th><th class="num">Amount</th><th class="num">VAT</th><th class="num">WHT</th><th class="num">Total</th><th class="num">Net Payable</th><th>Approval</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr>
-    <td><strong>${esc(e.id)}</strong>${e.docs&&Object.keys(e.docs).length?`<span class="dcount" title="${Object.keys(e.docs).length} document(s) attached">${ic('doc')}${Object.keys(e.docs).length}</span>`:''}</td><td>${esc(e.date)}</td><td>${esc(e.cat)}</td>
+  $('#expTable').innerHTML=`<table><thead><tr><th>ID</th><th>Doc Date</th><th>Period</th><th>Category</th><th>Vendor</th><th>Method</th><th class="num">Amount</th><th class="num">VAT</th><th class="num">WHT</th><th class="num">Total</th><th class="num">Net Payable</th><th>Approval</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr>
+    <td><strong>${esc(e.id)}</strong>${e.docs&&Object.keys(e.docs).length?`<span class="dcount" title="${Object.keys(e.docs).length} document(s) attached">${ic('doc')}${Object.keys(e.docs).length}</span>`:''}</td><td>${esc(e.date||'')}</td><td>${expPeriod(e)?esc(monthLabel(expPeriod(e))):'—'}</td><td>${esc(e.cat)}</td>
     <td>${esc(e.vendor||'—')}</td><td>${esc(e.pm)}</td><td class="num">${money(e.amt)}</td><td class="num">${money(e.tax)}</td><td class="num">${e.wht>0.001?'<span style="color:var(--accent)">'+money(e.wht)+'</span>':money(0)}</td>
     <td class="num"><strong>${money(e.total)}</strong></td><td class="num">${money(e.netpay!=null?e.netpay:(e.total-(e.wht||0)))}</td><td>${apprPill(e.appr)}</td>
     <td><div class="rowact"><button class="iconbtn" onclick="editExpense('${e.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delExpense('${e.id}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`).join('')}</tbody></table>`;
@@ -1781,8 +1830,54 @@ function renderCustomers(){
   $('#custTable').innerHTML=`<table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Registered</th><th>Tier</th><th class="num">Spend</th><th class="num">Visits</th><th></th></tr></thead><tbody>${rows.map(c=>{const cs=db.sales.filter(s=>s.cid===c.id);const spend=cs.reduce((a,s)=>a+s.net,0);return `<tr>
     <td><strong>${esc(c.id)}</strong></td><td>${esc(c.name)}</td><td>${esc(c.phone||'—')}</td><td>${esc(c.email||'—')}</td>
     <td>${esc(c.reg)}</td><td>${esc(c.tier||'None')}</td><td class="num">${money(spend)}</td><td class="num">${cs.length}</td>
-    <td><div class="rowact"><button class="iconbtn" onclick="editCustomer('${c.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delCustomer('${c.id}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`;}).join('')}</tbody></table>`;
+    <td><div class="rowact"><button class="iconbtn" title="Customer report (all services purchased)" onclick="printCustomerReport('${c.id}')" aria-label="Customer report">${ic('doc')}</button><button class="iconbtn" onclick="editCustomer('${c.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delCustomer('${c.id}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`;}).join('')}</tbody></table>`;
 }
+// Individual customer report: profile + spend summary + every service purchased + package balances.
+function printCustomerReport(cid){
+  const c=db.customers.find(x=>x.id===cid);if(!c){toast('Customer not found','alert');return;}
+  const sales=db.sales.filter(s=>s.cid===cid).slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.inv<b.inv?-1:1));
+  const clinic=(db.master&&db.master.clinic)||{};
+  const spend=sales.reduce((a,s)=>a+s.net,0),paid=sales.reduce((a,s)=>a+s.paid,0),bal=sales.reduce((a,s)=>a+Math.max(0,s.balance),0);
+  const visits=new Set(sales.map(s=>s.date)).size;
+  const first=sales.length?sales[0].date:'',last=sales.length?sales[sales.length-1].date:'';
+  // by-category summary
+  const byCat=groupSum(sales,s=>s.cat,s=>s.net);
+  const catRows=byCat.length?byCat.map(x=>{const n=sales.filter(s=>s.cat===x.k).length;return `<tr><td>${esc(x.k)}</td><td class="n">${n}</td><td class="n">${m0(x.v)}</td></tr>`;}).join(''):'<tr><td colspan="3">No purchases</td></tr>';
+  // all services purchased (line by line)
+  const saleRows=sales.length?sales.map(s=>`<tr><td>${esc(s.date)}</td><td>${esc(s.inv)}</td><td>${esc(s.cat)}</td><td>${esc(s.svc)}${s.pkg?' <span class="pk">PKG</span>':''}</td><td class="n">${s.qty}</td><td class="n">${m0(s.net)}</td><td class="n">${m0(s.paid)}</td><td class="n">${s.balance>0.001?m0(s.balance):'-'}</td><td>${esc(s.status||'')}</td></tr>`).join(''):'<tr><td colspan="9">No services purchased</td></tr>';
+  // packages
+  const pkgs=(db.packages||[]).filter(p=>p.cid===cid).slice().sort((a,b)=>pkgDone(a)-pkgDone(b)||pkgRemaining(b)-pkgRemaining(a));
+  const pkgRows=pkgs.length?pkgs.map(p=>`<tr><td>${esc(p.svc)}</td><td>${esc(p.start||'')}</td><td>${pkgExpiry(p)?`<span class="${pkgExpired(p)?'red':''}">${esc(pkgExpiry(p))}</span>`:'—'}</td><td class="n">${Math.min(+p.used||0,+p.total||0)}</td><td class="n">${+p.total||0}</td><td class="n"><b>${pkgRemaining(p)}</b></td><td>${pkgStatusText(p)}</td></tr>`).join(''):'';
+  const pkgSection=pkgs.length?`<h2>Packages — sessions remaining</h2><table><thead><tr><th>Course</th><th>Started</th><th>Expires</th><th class="n">Used</th><th class="n">Total</th><th class="n">Left</th><th>Status</th></tr></thead><tbody>${pkgRows}</tbody></table>`:'';
+  const info=[['HN / ID',c.id],['Phone',c.phone],['Email',c.email],['Tier',c.tier||'None'],['Registered',c.reg],['Gender',c.gender]].filter(x=>x[1]).map(x=>`<div><span class="k">${esc(x[0])}</span> ${esc(x[1])}</div>`).join('');
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>Customer Report — '+esc(c.name)+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:20px;margin:0 0 2px;color:#111}.sub{color:#666;font-size:10px;margin:2px 0 12px;border-bottom:2px solid #a97c43;padding-bottom:8px}'+
+    'h2{font-size:13px;margin:16px 0 5px;color:#a97c43}'+
+    '.info{display:flex;flex-wrap:wrap;gap:6px 20px;margin:8px 0 4px;font-size:12px}.info .k{color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.03em;margin-right:3px}'+
+    '.kpis{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.kp{flex:1;min-width:120px;border:1px solid #e2ddd6;border-radius:5px;padding:7px 10px}.kp .l{font-size:9.5px;color:#888;text-transform:uppercase;letter-spacing:.04em}.kp .v{font-size:15px;font-weight:700;margin-top:2px}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #d6d6d3;padding:4px 7px;text-align:left;vertical-align:top}'+
+    'th{background:#111;color:#fff;font-size:10px}td.n,th.n{text-align:right;white-space:nowrap}tr:nth-child(even) td{background:#fafafa}tfoot td{background:#ECECEC;font-weight:bold;border-top:2px solid #111}'+
+    '.pk{background:#a97c43;color:#fff;font-size:8.5px;padding:0 4px;border-radius:6px}.red{color:#b3261e;font-weight:700}'+
+    '@media print{body{margin:9mm}@page{size:landscape;margin:9mm}tr{break-inside:avoid}}'+
+    '</style></head><body>'+
+    '<h1>'+esc(c.name)+'</h1><div class="sub">Customer Report'+(clinic.nameTh?' · '+esc(clinic.nameTh):'')+' · Generated '+nowStamp()+'</div>'+
+    '<div class="info">'+info+'</div>'+
+    '<div class="kpis"><div class="kp"><div class="l">Total Spend</div><div class="v">'+m0(spend)+'</div></div>'+
+    '<div class="kp"><div class="l">Collected</div><div class="v">'+m0(paid)+'</div></div>'+
+    '<div class="kp"><div class="l">Outstanding</div><div class="v">'+m0(bal)+'</div></div>'+
+    '<div class="kp"><div class="l">Transactions</div><div class="v">'+sales.length+'</div></div>'+
+    '<div class="kp"><div class="l">Visits</div><div class="v">'+visits+'</div></div>'+
+    '<div class="kp"><div class="l">First / Last</div><div class="v" style="font-size:11px">'+(first||'—')+' → '+(last||'—')+'</div></div></div>'+
+    (c.notes?'<div style="font-size:11px;color:#555;margin-bottom:6px"><b>Notes:</b> '+esc(c.notes)+'</div>':'')+
+    '<h2>Spend by Category</h2><table><thead><tr><th>Category</th><th class="n">Items</th><th class="n">Spend</th></tr></thead><tbody>'+catRows+'</tbody></table>'+
+    pkgSection+
+    '<h2>All Services Purchased ('+sales.length+')</h2><table><thead><tr><th>Date</th><th>Invoice</th><th>Category</th><th>Service</th><th class="n">Qty</th><th class="n">Net</th><th class="n">Paid</th><th class="n">Balance</th><th>Status</th></tr></thead><tbody>'+saleRows+'</tbody>'+
+    (sales.length?'<tfoot><tr><td colspan="5">TOTAL</td><td class="n">'+m0(spend)+'</td><td class="n">'+m0(paid)+'</td><td class="n">'+m0(bal)+'</td><td></td></tr></tfoot>':'')+'</table>'+
+    '</body></html>';
+  printHtmlDoc(doc);
+}
+function m0(n){return '฿'+(Math.round((n||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2});}
 /* ============ RENDER: VENDORS ============ */
 function renderVendors(){
   const q=($('#vndSearch').value||'').toLowerCase();
@@ -1927,6 +2022,184 @@ function promosReport(){
 }
 function printPromos(){const r=promosReport();if(!r.rows.length){toast('No promotions match the current filters','alert');return;}printReport(r);}
 function exportPromosXls(){const r=promosReport();if(!r.rows.length){toast('No promotions match the current filters','alert');return;}exportXls(r);}
+/* ============ PACKAGE MANAGEMENT (session tracking) ============ */
+function pkgRemaining(p){return Math.max(0,(+p.total||0)-(+p.used||0));}
+function pkgDone(p){return pkgRemaining(p)<=0;}
+// Packages expire 1 year after the purchase/start date.
+function pkgExpiry(p){if(!p.start)return '';const d=new Date(p.start);if(isNaN(d))return '';d.setFullYear(d.getFullYear()+1);const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());}
+function pkgExpired(p){const e=pkgExpiry(p);return !pkgDone(p)&&!!e&&(new Date().toISOString().slice(0,10)>e);}
+function pkgStatusText(p){return pkgDone(p)?'Completed':(pkgExpired(p)?'Expired':'Active');}
+function packageServiceNames(){return db.services.filter(s=>s.pkg||(+s.sessions>1)).map(s=>s.name);}
+// Auto-create / update a package balance when a multi-session course is sold (linked by invoice).
+function syncPackageForSale(rec){
+  const sv=db.services.find(x=>x.name===rec.svc);
+  const total=sv&&+sv.sessions>1?+sv.sessions:0;
+  const existing=(db.packages||[]).find(p=>p.inv===rec.inv);
+  if(total<=1){ if(existing&&!(existing.log&&existing.log.length)) db.packages=db.packages.filter(p=>p.inv!==rec.inv); return; }
+  if(existing){existing.cid=rec.cid;existing.svc=rec.svc;existing.cat=rec.cat;existing.start=rec.date;existing.total=Math.max(existing.total,total);}
+  else{db.packages.unshift({id:'PK-'+db.seq.pkg,cid:rec.cid,svc:rec.svc,cat:rec.cat,total,used:0,start:rec.date,inv:rec.inv,log:[],notes:''});db.seq.pkg++;}
+}
+function removePackageForSale(inv){const p=(db.packages||[]).find(x=>x.inv===inv);if(p&&!(p.log&&p.log.length))db.packages=db.packages.filter(x=>x.inv!==inv);}
+function renderPackages(){
+  const all=db.packages||[];
+  const active=all.filter(p=>!pkgDone(p)),done=all.filter(pkgDone),expired=all.filter(pkgExpired);
+  $('#pkgKpis').innerHTML=[
+    kpiMini('Active Packages',String(active.length),'with sessions left'),
+    kpiMini('Sessions Remaining',String(all.reduce((a,p)=>a+pkgRemaining(p),0)),'across all customers'),
+    kpiMini('Expired',String(expired.length),'past 1-year validity'),
+    kpiMini('Completed',String(done.length),'fully used')
+  ].join('');
+  const q=($('#pkgSearch').value||'').toLowerCase(),st=$('#pkgStatus').value;
+  let rows=all.map(p=>Object.assign({},p,{_rem:pkgRemaining(p),_done:pkgDone(p),_exp:pkgExpired(p),_status:pkgStatusText(p),_expiry:pkgExpiry(p)}))
+    .filter(p=>(!st||p._status===st)&&(!q||[custName(p.cid),p.cid,p.svc].join(' ').toLowerCase().includes(q)))
+    .sort((a,b)=>a._done-b._done||(b._exp-a._exp)||b._rem-a._rem);
+  $('#pkgCount').innerHTML=`<b>${rows.length}</b> of ${all.length}`;
+  if(!all.length){$('#pkgTable').innerHTML=emptyState('stack','No packages yet','Sell a multi-session course or add one manually to start tracking sessions.',`<button class="btn" onclick="openPackage()">${ic('plus')} New Package</button>`);return;}
+  if(!rows.length){$('#pkgTable').innerHTML=emptyState('search','No matches','Try a different search or filter.');return;}
+  const pill=p=>p._done?'<span class="pill paid">Completed</span>':(p._exp?'<span class="pill unpaid">Expired</span>':'<span class="pill reimbursed">Active</span>');
+  $('#pkgTable').innerHTML=`<table><thead><tr><th>Customer</th><th>Course</th><th>Started</th><th>Expires</th><th class="num">Used</th><th class="num">Total</th><th class="num">Left</th><th>Last Used</th><th>Progress</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>{
+    const pct=p.total>0?Math.round(Math.min(p.used,p.total)/p.total*100):0;
+    const cls=p._done?'done':(p._rem<=1?'low':'');
+    return `<tr>
+      <td>${esc(custName(p.cid)||'—')} <span class="muted">${esc(p.cid||'')}</span></td>
+      <td>${esc(p.svc)}</td><td>${esc(p.start||'')}</td>
+      <td>${p._expiry?`<span style="color:${p._exp?'var(--bad)':'inherit'}">${esc(p._expiry)}</span>`:'<span class="muted">—</span>'}</td>
+      <td class="num"><a href="#" onclick="openPkgSessions('${p.id}');return false" title="View session dates" style="color:inherit;text-decoration:underline dotted">${Math.min(+p.used||0,+p.total||0)}</a></td><td class="num">${+p.total||0}</td>
+      <td class="num"><strong style="color:${p._done?'var(--ok)':(p._rem<=1?'var(--bad)':'inherit')}">${p._rem}</strong></td>
+      <td>${pkgLastUsed(p)||'<span class="muted">—</span>'}</td>
+      <td><span class="pkgbar ${cls}"><span style="width:${pct}%"></span></span></td>
+      <td>${pill(p)}</td>
+      <td><div class="rowact">${p._done?'':`<button class="iconbtn" title="Use a session (today)" onclick="usePackageSession('${p.id}')" aria-label="Use session">${ic('check')}</button>`}<button class="iconbtn" title="Session dates / history" onclick="openPkgSessions('${p.id}')" aria-label="Session history">${ic('doc')}</button><button class="iconbtn" onclick="editPackage('${p.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delPackage('${p.id}')" aria-label="Delete">${ic('trash')}</button></div></td>
+    </tr>`;}).join('')}</tbody></table>`;
+}
+function pkgLog(p){return (p.log||[]).slice().filter(e=>e&&e.date);}
+function pkgLastUsed(p){const l=pkgLog(p).map(e=>e.date).sort();return l.length?l[l.length-1]:'';}
+function usePackageSession(id,date){
+  const p=(db.packages||[]).find(x=>x.id===id);if(!p)return;
+  if(pkgRemaining(p)<=0){toast('No sessions remaining','alert');return;}
+  p.used=(+p.used||0)+1;p.log=p.log||[];p.log.push({date:date||new Date().toISOString().slice(0,10)});
+  save();renderAll();toast('Session logged · '+pkgRemaining(p)+' left'+(pkgRemaining(p)===0?' (completed)':''),'check');
+}
+function openPkgSessions(id){
+  const p=(db.packages||[]).find(x=>x.id===id);if(!p)return;
+  const log=(p.log||[]).map((e,i)=>({date:(e&&e.date)||'',i})).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.i-b.i);
+  const undated=Math.max(0,(+p.used||0)-log.length);
+  const today=new Date().toISOString().slice(0,10);
+  const rows=log.map((e,k)=>`<div class="appt-row" style="padding:8px var(--s4)"><div class="t">#${undated+k+1}</div><div class="info"><input type="date" value="${esc(e.date)}" onchange="editPkgSession('${p.id}',${e.i},this.value)" style="max-width:170px"></div><div class="rowact"><button class="iconbtn del" title="Remove this session" onclick="removePkgSession('${p.id}',${e.i})" aria-label="Remove">${ic('trash')}</button></div></div>`).join('');
+  const body=`
+   <div style="margin-bottom:var(--s3);color:var(--ink-2);font-size:13px"><strong>${esc(custName(p.cid)||p.cid||'—')}</strong> · ${esc(p.svc)}<br>Used <strong>${Math.min(+p.used||0,+p.total||0)}</strong> of <strong>${+p.total||0}</strong> · <strong>${pkgRemaining(p)}</strong> remaining${p.start?` · started ${esc(p.start)}`:''}${pkgExpiry(p)?` · <span style="color:${pkgExpired(p)?'var(--bad)':'inherit'}">expires ${esc(pkgExpiry(p))}${pkgExpired(p)?' (expired)':''}</span>`:''}</div>
+   ${undated>0?`<div class="dnote" style="margin-bottom:var(--s3)">${undated} earlier session(s) from imported history — no individual date recorded.</div>`:''}
+   <div class="bd flush" style="border:1px solid var(--line);border-radius:var(--r-sm);max-height:240px;overflow:auto">${rows||'<div style="padding:var(--s4);color:var(--ink-3)">No dated sessions logged yet.</div>'}</div>
+   <div class="grid2" style="margin-top:var(--s3);align-items:end">
+     <div class="field"><label>Log a session on</label><input type="date" id="pk_sessdate" value="${today}"></div>
+     <div class="field"><button class="btn" onclick="addPkgSession('${p.id}')" ${pkgRemaining(p)<=0?'disabled':''}>${ic('plus')} Add session</button></div>
+   </div>`;
+  showModal('Sessions · '+(custName(p.cid)||p.id),body,`<button class="btn sec" onclick="closeModal()">Close</button>`);
+}
+function addPkgSession(id){
+  const dt=$('#pk_sessdate')?$('#pk_sessdate').value:'';
+  const p=(db.packages||[]).find(x=>x.id===id);if(!p)return;
+  if(pkgRemaining(p)<=0){toast('No sessions remaining','alert');return;}
+  if(!dt){toast('Pick a date','alert');return;}
+  usePackageSession(id,dt);openPkgSessions(id);
+}
+function editPkgSession(id,idx,date){
+  const p=(db.packages||[]).find(x=>x.id===id);if(!p||!p.log||!p.log[idx])return;
+  p.log[idx].date=date;save();renderAll();
+}
+function removePkgSession(id,idx){
+  const p=(db.packages||[]).find(x=>x.id===id);if(!p||!p.log||!p.log[idx])return;
+  p.log.splice(idx,1);p.used=Math.max(0,(+p.used||0)-1);
+  save();renderAll();openPkgSessions(id);toast('Session removed','check');
+}
+function openPackage(existing){
+  const p=existing||{},edit=!!existing;
+  const body=`
+   <div class="grid2">
+     <div class="field"><label>Customer<span class="req">*</span></label><select id="pk_cid">${opts(db.customers.map(c=>c.id+' — '+c.name),p.cid?(p.cid+' — '+custName(p.cid)):'')}</select>${errHtml('Select a customer')}</div>
+     <div class="field"><label>Course / Package<span class="req">*</span></label><input id="pk_svc" list="pkgSvcList" value="${esc(p.svc||'')}" placeholder="Course name">${errHtml('Required')}<datalist id="pkgSvcList">${packageServiceNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>Total Sessions<span class="req">*</span></label><input type="number" id="pk_total" min="1" step="1" value="${p.total??''}">${errHtml('Must be ≥ 1')}</div>
+     <div class="field"><label>Used Sessions</label><input type="number" id="pk_used" min="0" step="1" value="${p.used??0}"></div>
+     <div class="field"><label>Start Date</label><input type="date" id="pk_start" value="${p.start||new Date().toISOString().slice(0,10)}"></div>
+   </div>
+   <div class="field"><label>Notes</label><textarea id="pk_notes" rows="2" placeholder="Optional…">${esc(p.notes||'')}</textarea></div>`;
+  const footer=`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="savePackage(${edit?`'${p.id}'`:'null'})">${edit?'Update':'Add'} package</button>`;
+  showModal(edit?'Edit Package · '+p.id:'New Package',body,footer);
+}
+function savePackage(editId){
+  const g=id=>$('#'+id).value;const cid=(g('pk_cid')||'').split(' — ')[0];let ok=true;
+  let b=!cid;markBad('pk_cid',b);if(b)ok=false;
+  b=!g('pk_svc').trim();markBad('pk_svc',b);if(b)ok=false;
+  const total=+g('pk_total');b=isNaN(total)||total<1;markBad('pk_total',b);if(b)ok=false;
+  if(!ok){toast('Please fix the highlighted fields','alert');return;}
+  let used=Math.max(0,Math.min(+g('pk_used')||0,total));
+  const old=editId?(db.packages.find(x=>x.id===editId)||{}):{};
+  const rec={id:editId||('PK-'+db.seq.pkg),cid,svc:g('pk_svc').trim(),cat:old.cat||'',total,used,start:g('pk_start'),inv:old.inv||'',log:old.log||[],notes:g('pk_notes').trim()};
+  if(editId){db.packages[db.packages.findIndex(x=>x.id===editId)]=rec;}else{db.packages.unshift(rec);db.seq.pkg++;}
+  save();renderAll();closeModal();toast(editId?'Package updated':'Package added','check');
+}
+function editPackage(id){openPackage((db.packages||[]).find(x=>x.id===id));}
+function delPackage(id){if(!confirm('Delete this package record?'))return;db.packages=db.packages.filter(x=>x.id!==id);save();renderAll();toast('Package deleted','check');}
+function packagesReport(){
+  const q=($('#pkgSearch').value||'').toLowerCase(),st=$('#pkgStatus').value;
+  const rows=(db.packages||[]).map(p=>Object.assign({},p,{_rem:pkgRemaining(p),_done:pkgDone(p),_exp:pkgExpired(p),_status:pkgStatusText(p),_expiry:pkgExpiry(p)}))
+    .filter(p=>(!st||p._status===st)&&(!q||[custName(p.cid),p.cid,p.svc].join(' ').toLowerCase().includes(q)))
+    .sort((a,b)=>a._done-b._done||(b._exp-a._exp)||b._rem-a._rem);
+  const f=[];if(st)f.push('Status: '+st);if($('#pkgSearch').value)f.push('Search: "'+$('#pkgSearch').value+'"');
+  return {name:'Packages',title:'Package Sessions',file:'Visage_Packages_'+nowFile(),filters:f,rows,
+    cols:[{l:'Customer',g:p=>custName(p.cid)||''},{l:'HN',g:p=>p.cid||''},{l:'Course',g:p=>p.svc},{l:'Started',g:p=>p.start||''},{l:'Expires',g:p=>p._expiry||''},
+      {l:'Used',g:p=>Math.min(+p.used||0,+p.total||0),num:true,total:true},{l:'Total',g:p=>+p.total||0,num:true,total:true},
+      {l:'Remaining',g:p=>p._rem,num:true,total:true},{l:'Last Used',g:p=>pkgLastUsed(p)},{l:'Status',g:p=>p._status},{l:'Notes',g:p=>p.notes||'',noPrint:true}]};
+}
+function printPackages(){const r=packagesReport();if(!r.rows.length){toast('No packages match the current filters','alert');return;}printReport(r);}
+function exportPackagesXls(){const r=packagesReport();if(!r.rows.length){toast('No packages match the current filters','alert');return;}exportXls(r);}
+// Per-customer package report: every purchased course with its used-session dates and remaining sessions.
+function printCustomerPackages(){
+  const r=packagesReport();
+  if(!r.rows.length){toast('No packages match the current filters','alert');return;}
+  const groups={};r.rows.forEach(p=>{(groups[p.cid]||(groups[p.cid]=[])).push(p);});
+  const cids=Object.keys(groups).sort((a,b)=>(custName(a)||a).localeCompare(custName(b)||b));
+  const c=(db.master&&db.master.clinic)||{};
+  const sections=cids.map(cid=>{
+    const pkgs=groups[cid].slice().sort((a,b)=>a._done-b._done||(b._exp-a._exp)||b._rem-a._rem);
+    const tRem=pkgs.reduce((a,p)=>a+p._rem,0);
+    const blocks=pkgs.map(p=>{
+      const dates=pkgLog(p).map(e=>e.date).sort();
+      const used=Math.min(+p.used||0,+p.total||0);
+      const undated=Math.max(0,used-dates.length);
+      let n=0,items='';
+      if(undated>0){items+=`<li class="nd">Session ${undated===1?'1':'1–'+undated} — date not recorded (imported history)</li>`;n=undated;}
+      dates.forEach(dt=>{n++;items+=`<li>Session ${n} — ${esc(dt)}</li>`;});
+      if(!items)items='<li class="nd">No sessions used yet</li>';
+      const stcls=p._done?'done':(p._exp?'exp':'act');
+      const expHtml=p._expiry?`<span class="${p._exp?'red':''}">Expires ${esc(p._expiry)}${p._exp?' (expired)':''}</span>`:'Expires —';
+      return `<div class="pkg">
+        <div class="pkgh"><span class="cn">${esc(p.svc)}</span> <span class="badge ${stcls}">${p._status}</span></div>
+        <div class="pkgm">Started ${esc(p.start||'—')} &nbsp;·&nbsp; ${expHtml} &nbsp;·&nbsp; Used <b>${used}</b> of <b>${+p.total||0}</b> &nbsp;·&nbsp; <b>${p._rem}</b> remaining</div>
+        <div class="vt">Visit details:</div><ul class="visits">${items}</ul>
+      </div>`;
+    }).join('');
+    return `<h2>${esc(custName(cid)||'—')} <span class="hn">${esc(cid||'')}</span> <span class="rem">${tRem} session(s) remaining</span></h2>${blocks}`;
+  }).join('');
+  const filt=r.filters.length?' · '+r.filters.join('; '):'';
+  const meta='Visage Clinic'+(c.nameTh?' — '+c.nameTh:'')+' &nbsp;·&nbsp; '+cids.length+' customer(s)'+esc(filt)+' &nbsp;·&nbsp; Packages valid 1 year from purchase &nbsp;·&nbsp; Generated '+nowStamp();
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>Customer Package Report</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:20px;margin:0 0 4px;color:#111;border-bottom:2px solid #a97c43;padding-bottom:6px}.meta{color:#666;font-size:10px;margin:4px 0 16px}'+
+    'h2{font-size:13px;margin:18px 0 6px;color:#111;background:#f4efe9;padding:5px 8px;border-left:3px solid #a97c43}'+
+    'h2 .hn{font-weight:400;color:#888;font-size:11px}h2 .rem{float:right;font-weight:400;color:#a97c43;font-size:11px}'+
+    '.pkg{border:1px solid #e2ddd6;border-radius:4px;padding:6px 9px;margin:0 0 7px}'+
+    '.pkgh{font-size:12.5px}.pkgh .cn{font-weight:700}.pkgm{color:#555;font-size:11px;margin:2px 0 4px}'+
+    '.badge{font-size:9.5px;padding:1px 6px;border-radius:9px;color:#fff;margin-left:4px}.badge.act{background:#a97c43}.badge.exp{background:#b3261e}.badge.done{background:#3f7d4f}'+
+    '.vt{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.04em}'+
+    'ul.visits{margin:2px 0 0;padding-left:18px}ul.visits li{font-size:11.5px;line-height:1.55}ul.visits li.nd{color:#999;list-style:none;margin-left:-14px}'+
+    '.red{color:#b3261e;font-weight:700}'+
+    '@media print{body{margin:9mm}@page{size:portrait;margin:9mm}h2{break-after:avoid}.pkg{break-inside:avoid}}'+
+    '</style></head><body><h1>Customer Package Report</h1><div class="meta">'+meta+'</div>'+sections+'</body></html>';
+  printHtmlDoc(doc);
+}
 /* ============ RENDER: MASTER ============ */
 function renderMaster(){
   const m=db.master;
@@ -2161,9 +2434,82 @@ function renderReports(){
   $('#rpTop').innerHTML=top.length?`<table><thead><tr><th>Customer</th><th class="num">Visits</th><th class="num">Spend</th><th>Type</th></tr></thead><tbody>${top.map(c=>{const v=M.sales.filter(s=>s.cid===c.k).length;return `<tr><td>${esc(custName(c.k))} <span class="muted">${esc(c.k)}</span></td><td class="num">${v}</td><td class="num"><strong>${money(c.v)}</strong></td><td>${isNew(c.k)?'<span class="pill paid">New</span>':'<span class="pill reimbursed">Returning</span>'}</td></tr>`;}).join('')}</tbody></table>`:emptyState('users','No customers','No customer sales this month.');
   $('#rpYearTitle').textContent=year+' — Monthly Comparison';
   $('#rpYear2').innerHTML=rpYearTableHtml(year);
+  renderDaily();
 }
 $('#rpMonth')&&$('#rpMonth').addEventListener('change',renderReports);
 $('#rpYear')&&$('#rpYear').addEventListener('change',renderReports);
+/* ---- Daily Summary: all transactions, movements & activities on one day ---- */
+function dailyData(dt){
+  const sales=db.sales.filter(s=>s.date===dt);
+  const exps=db.expenses.filter(e=>e.date===dt); // by document date (the day it physically happened)
+  const moves=(db.moves||[]).filter(m=>m.date===dt);
+  const sessions=[];(db.packages||[]).forEach(p=>(p.log||[]).forEach(e=>{if(e&&e.date===dt)sessions.push({cid:p.cid,svc:p.svc,id:p.id,rem:pkgRemaining(p)});}));
+  const newCust=db.customers.filter(c=>c.reg===dt);
+  return {sales,exps,moves,sessions,newCust};
+}
+function dailyTotals(D){
+  return {sales:D.sales.reduce((a,s)=>a+s.net,0),collected:D.sales.reduce((a,s)=>a+s.paid,0),
+    outstanding:D.sales.reduce((a,s)=>a+Math.max(0,s.balance),0),exp:D.exps.reduce((a,e)=>a+e.total,0)};
+}
+function renderDaily(){
+  const day=$('#rpDay');if(!day)return;
+  if(!day.value){const ds=db.sales.map(s=>s.date).concat(db.expenses.map(e=>e.date)).filter(Boolean).sort();day.value=ds.length?ds[ds.length-1]:new Date().toISOString().slice(0,10);}
+  const dt=day.value,D=dailyData(dt),T=dailyTotals(D);
+  $('#dayKpis').innerHTML=[
+    kpiMini('Sales',money(T.sales),D.sales.length+' transactions'),
+    kpiMini('Collected',money(T.collected),'received'),
+    kpiMini('Expenses',money(T.exp),D.exps.length+' records'),
+    kpiMini('Net',money(T.sales-T.exp),'sales − expenses'),
+    kpiMini('Sessions Used',String(D.sessions.length),'package visits'),
+    kpiMini('Stock Moves',String(D.moves.length),'in/out/adjust')
+  ].join('');
+  const sec=(title,sub,html)=>`<div class="card" style="margin-top:var(--s4)"><div class="hd"><h3>${title}</h3>${sub?`<span class="sub">${sub}</span>`:''}</div><div class="bd flush tbl-wrap">${html}</div></div>`;
+  const salesT=D.sales.length?`<table><thead><tr><th>Invoice</th><th>Customer</th><th>Category</th><th>Service</th><th class="num">Qty</th><th class="num">Net</th><th class="num">Paid</th><th>Method</th><th>Status</th></tr></thead><tbody>${D.sales.map(s=>`<tr><td><strong>${esc(s.inv)}</strong></td><td>${esc(custName(s.cid))} <span class="muted">${esc(s.cid||'')}</span></td><td>${esc(s.cat)}</td><td>${esc(s.svc)}</td><td class="num">${s.qty}</td><td class="num">${money(s.net)}</td><td class="num">${money(s.paid)}</td><td>${esc(s.pm)}</td><td>${statusPill(s.status)}</td></tr>`).join('')}<tr style="background:var(--surface-2)"><td colspan="5" style="text-align:right"><strong>Total</strong></td><td class="num"><strong>${money(T.sales)}</strong></td><td class="num"><strong>${money(T.collected)}</strong></td><td colspan="2"></td></tr></tbody></table>`:emptyState('sales','No sales','No transactions on this day.');
+  const expT=D.exps.length?`<table><thead><tr><th>ID</th><th>Category</th><th>Vendor</th><th>Method</th><th class="num">Total</th><th class="num">WHT</th><th>Approval</th></tr></thead><tbody>${D.exps.map(e=>`<tr><td><strong>${esc(e.id)}</strong></td><td>${esc(e.cat)}</td><td>${esc(e.vendor||'—')}</td><td>${esc(e.pm)}</td><td class="num">${money(e.total)}</td><td class="num">${e.wht>0.001?money(e.wht):'-'}</td><td>${esc(e.appr||'')}</td></tr>`).join('')}<tr style="background:var(--surface-2)"><td colspan="4" style="text-align:right"><strong>Total</strong></td><td class="num"><strong>${money(T.exp)}</strong></td><td colspan="2"></td></tr></tbody></table>`:emptyState('exp','No expenses','No expenses dated this day.');
+  const moveT=D.moves.length?`<table><thead><tr><th>Item</th><th>Type</th><th class="num">Qty</th><th>Ref</th><th>Note</th></tr></thead><tbody>${D.moves.map(m=>`<tr><td>${esc(itemName(m.item))}</td><td>${esc(m.kind)}</td><td class="num" style="color:${m.qty<0?'var(--bad)':'var(--ok)'}">${m.qty>0?'+':''}${m.qty}</td><td>${esc(m.ref||'—')}</td><td>${esc(m.note||'')}</td></tr>`).join('')}</tbody></table>`:emptyState('stack','No stock movements','No inventory changes on this day.');
+  const sessT=D.sessions.length?`<table><thead><tr><th>Customer</th><th>Course</th><th class="num">Remaining after</th></tr></thead><tbody>${D.sessions.map(x=>`<tr><td>${esc(custName(x.cid))} <span class="muted">${esc(x.cid||'')}</span></td><td>${esc(x.svc)}</td><td class="num">${x.rem}</td></tr>`).join('')}</tbody></table>`:'';
+  const custT=D.newCust.length?`<table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Tier</th></tr></thead><tbody>${D.newCust.map(c=>`<tr><td><strong>${esc(c.id)}</strong></td><td>${esc(c.name)}</td><td>${esc(c.phone||'—')}</td><td>${esc(c.tier||'None')}</td></tr>`).join('')}</tbody></table>`:'';
+  $('#dayBody').innerHTML=sec('Sales','transactions',salesT)+sec('Expenses','by document date',expT)+sec('Stock Movements','',moveT)+(D.sessions.length?sec('Package Sessions Used','',sessT):'')+(D.newCust.length?sec('New Customers','registered today',custT):'');
+}
+function printDailyReport(){
+  const dt=($('#rpDay')&&$('#rpDay').value)||new Date().toISOString().slice(0,10);
+  const D=dailyData(dt),T=dailyTotals(D),c=(db.master&&db.master.clinic)||{};
+  const pm=groupSum(D.sales,s=>s.pm,s=>s.paid);
+  const sec=(title,head,body,foot)=>body?`<h2>${title}</h2><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot||''}</table>`:`<h2>${title}</h2><div class="none">None</div>`;
+  const salesB=D.sales.map(s=>`<tr><td>${esc(s.inv)}</td><td>${esc(custName(s.cid))} (${esc(s.cid||'')})</td><td>${esc(s.cat)}</td><td>${esc(s.svc)}</td><td class="n">${s.qty}</td><td class="n">${m0(s.net)}</td><td class="n">${m0(s.paid)}</td><td>${esc(s.pm)}</td><td>${esc(s.status||'')}</td></tr>`).join('');
+  const salesF=D.sales.length?`<tfoot><tr><td colspan="5">TOTAL</td><td class="n">${m0(T.sales)}</td><td class="n">${m0(T.collected)}</td><td colspan="2"></td></tr></tfoot>`:'';
+  const expB=D.exps.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.cat)}</td><td>${esc(e.vendor||'-')}</td><td>${esc(e.pm)}</td><td class="n">${m0(e.total)}</td><td class="n">${e.wht>0.001?m0(e.wht):'-'}</td><td>${esc(e.appr||'')}</td></tr>`).join('');
+  const expF=D.exps.length?`<tfoot><tr><td colspan="4">TOTAL</td><td class="n">${m0(T.exp)}</td><td colspan="2"></td></tr></tfoot>`:'';
+  const moveB=D.moves.map(m=>`<tr><td>${esc(itemName(m.item))}</td><td>${esc(m.kind)}</td><td class="n">${m.qty>0?'+':''}${m.qty}</td><td>${esc(m.ref||'-')}</td><td>${esc(m.note||'')}</td></tr>`).join('');
+  const sessB=D.sessions.map(x=>`<tr><td>${esc(custName(x.cid))} (${esc(x.cid||'')})</td><td>${esc(x.svc)}</td><td class="n">${x.rem}</td></tr>`).join('');
+  const custB=D.newCust.map(c2=>`<tr><td>${esc(c2.id)}</td><td>${esc(c2.name)}</td><td>${esc(c2.phone||'-')}</td><td>${esc(c2.tier||'None')}</td></tr>`).join('');
+  const pmB=pm.map(x=>`<tr><td>${esc(x.k)}</td><td class="n">${m0(x.v)}</td></tr>`).join('')||'<tr><td colspan="2">-</td></tr>';
+  const meta='Visage Clinic'+(c.nameTh?' — '+c.nameTh:'')+' &nbsp;·&nbsp; Generated '+nowStamp();
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>Daily Summary '+dt+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:20px;margin:0 0 2px;color:#111}.sub{color:#666;font-size:10px;margin:2px 0 12px;border-bottom:2px solid #a97c43;padding-bottom:8px}'+
+    'h2{font-size:13px;margin:15px 0 5px;color:#a97c43}.none{color:#999;font-size:11px;margin-bottom:6px}'+
+    '.kpis{display:flex;gap:9px;flex-wrap:wrap;margin:8px 0}.kp{flex:1;min-width:110px;border:1px solid #e2ddd6;border-radius:5px;padding:7px 10px}.kp .l{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.04em}.kp .v{font-size:15px;font-weight:700;margin-top:2px}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:6px}th,td{border:1px solid #d6d6d3;padding:4px 7px;text-align:left;vertical-align:top}'+
+    'th{background:#111;color:#fff;font-size:10px}td.n,th.n{text-align:right;white-space:nowrap}tr:nth-child(even) td{background:#fafafa}tfoot td{background:#ECECEC;font-weight:bold;border-top:2px solid #111}'+
+    '@media print{body{margin:9mm}@page{size:landscape;margin:9mm}tr{break-inside:avoid}}'+
+    '</style></head><body>'+
+    '<h1>Daily Summary — '+dt+'</h1><div class="sub">'+meta+'</div>'+
+    '<div class="kpis"><div class="kp"><div class="l">Sales</div><div class="v">'+m0(T.sales)+'</div></div>'+
+    '<div class="kp"><div class="l">Collected</div><div class="v">'+m0(T.collected)+'</div></div>'+
+    '<div class="kp"><div class="l">Outstanding</div><div class="v">'+m0(T.outstanding)+'</div></div>'+
+    '<div class="kp"><div class="l">Expenses</div><div class="v">'+m0(T.exp)+'</div></div>'+
+    '<div class="kp"><div class="l">Net</div><div class="v">'+m0(T.sales-T.exp)+'</div></div>'+
+    '<div class="kp"><div class="l">Sessions / Moves</div><div class="v">'+D.sessions.length+' / '+D.moves.length+'</div></div></div>'+
+    sec('Sales ('+D.sales.length+')','<th>Invoice</th><th>Customer</th><th>Category</th><th>Service</th><th class="n">Qty</th><th class="n">Net</th><th class="n">Paid</th><th>Method</th><th>Status</th>',salesB,salesF)+
+    '<h2>Payment Collected by Method</h2><table><thead><tr><th>Method</th><th class="n">Collected</th></tr></thead><tbody>'+pmB+'</tbody></table>'+
+    sec('Expenses ('+D.exps.length+') — by document date','<th>ID</th><th>Category</th><th>Vendor</th><th>Method</th><th class="n">Total</th><th class="n">WHT</th><th>Approval</th>',expB,expF)+
+    sec('Stock Movements ('+D.moves.length+')','<th>Item</th><th>Type</th><th class="n">Qty</th><th>Ref</th><th>Note</th>',moveB)+
+    sec('Package Sessions Used ('+D.sessions.length+')','<th>Customer</th><th>Course</th><th class="n">Remaining</th>',sessB)+
+    sec('New Customers ('+D.newCust.length+')','<th>ID</th><th>Name</th><th>Phone</th><th>Tier</th>',custB)+
+    '</body></html>';
+  printHtmlDoc(doc);
+}
 function exportReportXls(){
   const year=($('#rpYear')&&$('#rpYear').value)||String(new Date().getFullYear());
   const rows=rpYearRows(year);
@@ -2210,7 +2556,7 @@ function printMonthlyReport(){
   printHtmlDoc(doc);
 }
 /* ============ RENDER ALL ============ */
-function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderMaster();}
+function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderMaster();}
 
 /* ============ ABOUT DOC ============ */
 function fieldRow(n,d,t,mo,ex,va){return `<tr><td><strong>${n}</strong></td><td>${d}</td><td>${t}</td><td><span class="dtag ${mo==='M'?'m':'o'}">${mo==='M'?'Mandatory':'Optional'}</span></td><td>${ex}</td><td>${va}</td></tr>`;}
@@ -2222,7 +2568,7 @@ function renderAbout(){
   <p><strong>Sales</strong> · <strong>Expenses</strong> · <strong>Vendors</strong> · <strong>Inventory</strong> (stock purchases of consumables, injectables &amp; supplies) · <strong>Customers &amp; Treatments</strong> · <strong>Payment Tracking</strong> (balance &amp; status auto-derived) · <strong>Master Data</strong> (drives every dropdown) · <strong>Analytics Dashboard</strong>.</p>
   <h3>Sales Field Design</h3>
   <table><thead><tr><th>Field</th><th>Description</th><th>Input</th><th>M/O</th><th>Example</th><th>Validation</th></tr></thead><tbody>
-  ${fieldRow('Invoice No','Unique receipt number','Auto','M','INV-1007','Auto sequence; unique')}
+  ${fieldRow('Invoice No','Combined sales number (skin + ED), per month by txn date','Auto','M','S2605-0001','Format SYYMM-#### · auto; unique')}
   ${fieldRow('Txn Date','Date of sale','Date picker','M','2026-05-08','Valid; not future')}
   ${fieldRow('Customer','Registered customer','Dropdown','M','VC-1002','Must exist')}
   ${fieldRow('Service Category','Treatment group','Dropdown','M','Injectables','From list')}
