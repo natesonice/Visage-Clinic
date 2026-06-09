@@ -427,6 +427,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="services">__I_spark__ Service Catalog</a>
       <a data-view="promos">__I_megaphone__ Promotions</a>
       <a data-view="packages">__I_stack__ Packages</a>
+      <a data-view="payroll">__I_wallet__ Payroll</a>
       <div class="lbl">Configuration</div>
       <a data-view="master">__I_sliders__ Master Data</a>
       <a data-view="about">__I_doc__ About &amp; Design</a>
@@ -658,6 +659,18 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
         <div class="card"><div class="bd flush tbl-wrap" id="pkgTable"></div></div>
       </section>
 
+      <!-- PAYROLL -->
+      <section id="view-payroll" class="view">
+        <div class="phead"><div><h2>Payroll</h2><p>Salaries, commission, OT &amp; payslips</p></div><div class="grow"></div>
+          <select id="payMonth" onchange="renderPayroll()" title="Payroll month"></select>
+          <button class="btn sec" onclick="openEmployees()" title="Manage employees">__I_users__ Employees</button>
+          <button class="btn sec" onclick="printPayrollSummary()" title="Print the monthly payroll summary">__I_print__ Print</button>
+          <button class="btn sec" onclick="exportPayrollXls()" title="Download payroll as Excel">__I_sheet__ Excel</button>
+          <button class="btn" onclick="openPayEntry()">__I_plus__ Add to Payroll</button></div>
+        <div class="kpis" id="payKpis"></div>
+        <div class="card"><div class="bd flush tbl-wrap" id="payTable"></div></div>
+      </section>
+
       <!-- MASTER -->
       <section id="view-master" class="view">
         <div class="phead"><div><h2>Master Data</h2><p>Edit these lists to update every dropdown across the app</p></div><div class="grow"></div>
@@ -738,7 +751,7 @@ const BRANCH='Visage Clinic — Main';
 let db=null;
 
 const MASTER_DEFAULT={
-  serviceCategories:["Laser ขน พนักงาน","Laser ขน แพทย์","Toroidal RF","Starwalker","Erbium","Holistic Melaclear","Fotona","Micro Coring","ED Treatment","Retail Product","Venus Viva","Botox","Laser & Energy","IV & Drips","Filler & Skinbooster","Ulthera","Tesla PMS","Anal Treatment","Intima Wave","Other"],
+  serviceCategories:["Laser ขน พนักงาน","Laser ขน แพทย์","Toroidal RF","Starwalker","Erbium","Holistic Melaclear","Fotona","Other","ED Treatment","Botox","Micro Coring","Retail Product","Filler & Skinbooster","IV & Drips","Laser & Energy","Venus Viva","Ulthera","Tesla PMS","Anal Treatment","Intima Wave"],
   staff:["Dr. Lim (Doctor)","Dr. Tan (Doctor)","Nurse Aisha","Therapist Mei","Beautician Sara"],
   salespersons:["Front Desk – Karen","Consultant – Wei","Manager – Anita"],
   discountTypes:["None","Member Discount","Promotion","Package Deal","Staff Discount","Voucher"],
@@ -762,8 +775,8 @@ const SERVICES_DEFAULT=[];
 function vendorsFromNames(names){return names.filter(n=>n&&n!=='Other').map((n,i)=>({id:'VN-'+String(i+1).padStart(3,'0'),name:n,contact:'',phone:'',email:'',taxId:'',terms:'',notes:''}));}
 function emptyDB(){
   return {master:JSON.parse(JSON.stringify(MASTER_DEFAULT)),services:JSON.parse(JSON.stringify(SERVICES_DEFAULT)),
-    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],
-    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001}};
+    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],employees:[],payroll:[],
+    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001,emp:1001,pay:1001}};
 }
 /* ============ CLOUD (Supabase) ============ */
 const CFG_KEY='visage_sb_cfg', SES_KEY='visage_sb_session';
@@ -810,8 +823,8 @@ async function rest(method,path,body,headers,_retried){
   return r;
 }
 async function fetchAllRecords(role){
-  // staff never download expense records (real data-level protection, not just hidden tabs)
-  const extra=role==='staff'?'&kind=neq.expense':'';
+  // staff never download expense or payroll/employee records (real data-level protection, not just hidden tabs)
+  const extra=role==='staff'?'&kind=not.in.(expense,payroll,employee)':'';
   const out=[];const page=1000;let from=0;
   for(;;){
     const r=await rest('GET','records?select=kind,id,data&kind=neq.doc'+extra+'&order=kind.asc,id.asc',undefined,{Range:from+'-'+(from+page-1)});
@@ -835,12 +848,12 @@ function isStaff(){return ROLE==='staff';}
 function applyRole(){
   const staff=isStaff();
   // staff: hide full Dashboard + Expenses + Analytics, show the sales-only Sales Dashboard
-  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"]').forEach(a=>a.style.display=staff?'none':'');
+  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"],#nav a[data-view="payroll"]').forEach(a=>a.style.display=staff?'none':'');
   const sd=document.querySelector('#nav a[data-view="salesdash"]');if(sd)sd.style.display=staff?'':'none';
   const rc=document.getElementById('roleChip');
   if(rc){rc.textContent=staff?'Staff':'Admin';rc.dataset.role=ROLE;rc.style.display='';}
   const cur=document.querySelector('.view.active');
-  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'))go('salesdash');}
+  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'||cur.id==='view-payroll'))go('salesdash');}
   else{if(cur&&cur.id==='view-salesdash')go('dashboard');}
 }
 function dbToRecords(){
@@ -853,6 +866,8 @@ function dbToRecords(){
   db.moves.forEach(x=>recs.push({kind:'move',id:String(x.id),data:x}));
   db.promos.forEach(x=>recs.push({kind:'promo',id:String(x.id),data:x}));
   (db.packages||[]).forEach(x=>recs.push({kind:'package',id:String(x.id),data:x}));
+  (db.employees||[]).forEach(x=>recs.push({kind:'employee',id:String(x.id),data:x}));
+  (db.payroll||[]).forEach(x=>recs.push({kind:'payroll',id:String(x.id),data:x}));
   db.services.forEach(s=>recs.push({kind:'service',id:String(s.name),data:s}));
   recs.push({kind:'meta',id:'master',data:db.master});
   recs.push({kind:'meta',id:'seq',data:db.seq});
@@ -870,6 +885,8 @@ function applyRecords(rows){
     else if(r.kind==='move')d.moves.push(x);
     else if(r.kind==='promo')d.promos.push(x);
     else if(r.kind==='package')(d.packages||(d.packages=[])).push(x);
+    else if(r.kind==='employee')(d.employees||(d.employees=[])).push(x);
+    else if(r.kind==='payroll')(d.payroll||(d.payroll=[])).push(x);
     else if(r.kind==='service')d.services.push(x);
     else if(r.kind==='meta'&&r.id==='master'){d.master=Object.assign({},d.master,x);if(!d.master.admins)d.master.admins=[];}
     else if(r.kind==='meta'&&r.id==='seq')d.seq=Object.assign({},d.seq,x);});
@@ -948,6 +965,7 @@ async function cloudBoot(){
     ROLE=await detectRole();
     const rows=await fetchAllRecords(ROLE);
     applyRecords(rows);
+    if(ROLE==='admin'&&typeof migrateSaleNumbers==='function'&&migrateSaleNumbers()){toast('Updating sale numbers to the combined format\u2026','refresh');save();}
     hideAuth();renderAll();applyRole();
     setChip('ok','Connected');
     const b=document.getElementById('signOutBtn');if(b){b.style.display='';b.title='Signed in as '+(SESSION.email||'staff')+' ('+ROLE+')';}
@@ -995,9 +1013,9 @@ function expRunningNext(period){let max=0;db.expenses.forEach(e=>{if(expPeriod(e
 function newExpId(period){const yymm=periodToYYMM(period);return yymm.length===4?yymm+'-'+expRunningNext(period):'';}
 
 /* ============ NAV / THEME ============ */
-const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',master:'Master Data',about:'About & Design'};
+const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',payroll:'Payroll',master:'Master Data',about:'About & Design'};
 function go(view){
-  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'))view='salesdash';
+  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'||view==='payroll'))view='salesdash';
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#view-'+view).classList.add('active');
@@ -1026,6 +1044,20 @@ function errHtml(msg){return `<div class="err">${ic('alert')}<span>${esc(msg)}</
 function saleYYMM(date){return (date||'').slice(2,4)+(date||'').slice(5,7);}
 function saleRunningNext(yymm){let max=0;db.sales.forEach(s=>{const m=String(s.inv).match(/^S(\d{2})(\d{2})-(\d+)/);if(m&&m[1]+m[2]===yymm)max=Math.max(max,+m[3]);});return String(max+1).padStart(4,'0');}
 function newSaleId(date){const yymm=saleYYMM(date);return yymm.length===4?'S'+yymm+'-'+saleRunningNext(yymm):'';}
+// One-time migration: convert any legacy invoice (ED…, 2026…, INV-…) into the combined SYYMM-#### sequence.
+// Renumbers ED + Skin together, ordered by date, per month. Returns true if anything changed.
+function migrateSaleNumbers(){
+  const sales=db.sales||[];if(!sales.length)return false;
+  const okfmt=v=>/^S\d{4}-\d{4}$/.test(String(v));
+  if(sales.every(s=>okfmt(s.inv)))return false;
+  const sorted=sales.slice().sort((a,b)=>{const da=a.date||'',dbb=b.date||'';return da<dbb?-1:da>dbb?1:(String(a.inv)<String(b.inv)?-1:String(a.inv)>String(b.inv)?1:0);});
+  const ctr={},map={};
+  sorted.forEach(s=>{const ym=(s.date||'').slice(0,7),yymm=ym.slice(2,4)+ym.slice(5,7);if(yymm.length!==4)return;ctr[yymm]=(ctr[yymm]||0)+1;map[s.inv]='S'+yymm+'-'+String(ctr[yymm]).padStart(4,'0');});
+  let changed=false;
+  sales.forEach(s=>{if(map[s.inv]&&map[s.inv]!==s.inv){s.inv=map[s.inv];changed=true;}});
+  (db.packages||[]).forEach(p=>{if(p.inv&&map[p.inv])p.inv=map[p.inv];});
+  (db.moves||[]).forEach(m=>{if(m.ref&&map[m.ref])m.ref=map[m.ref];});
+  return changed;}
 function openSale(existing){
   const m=db.master,s=existing||{};
   const svcOptsFor=cat=>db.services.filter(x=>!cat||x.cat===cat).map(x=>x.name);
@@ -2200,6 +2232,193 @@ function printCustomerPackages(){
     '</style></head><body><h1>Customer Package Report</h1><div class="meta">'+meta+'</div>'+sections+'</body></html>';
   printHtmlDoc(doc);
 }
+/* ============ PAYROLL ============ */
+const PAY_TIERS=[[1000000,0.0075],[700000,0.005],[500000,0.0025]]; // skin-sales commission tiers
+function payCommission(base){base=+base||0;for(const [thr,rate] of PAY_TIERS){if(base>thr||(thr===500000&&base>=500000))return Math.round(base*rate*100)/100;}return 0;}
+// Categories excluded from the skin-sales commission base.
+const PAY_COMM_EXCLUDE=['ed treatment','intima','tesla','anal'];
+function payCommExcluded(cat){const c=String(cat||'').toLowerCase();return PAY_COMM_EXCLUDE.some(x=>c.includes(x));}
+function skinSalesForMonth(ym){return db.sales.filter(s=>s.date.slice(0,7)===ym&&!payCommExcluded(s.cat)).reduce((a,s)=>a+s.net,0);}
+function prevMonth(ym){const [y,m]=ym.split('-').map(Number);const d=new Date(y,m-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function empById(id){return (db.employees||[]).find(e=>e.id===id);}
+function empName(id){const e=empById(id);return e?e.name:'';}
+// Compute all derived figures for a payroll entry.
+function payCompute(p){
+  const e=empById(p.eid)||{};
+  const baseSalary=+e.baseSalary||0;
+  const firstHalf=+p.firstHalf||0;
+  const secondBase=Math.max(0,baseSalary-firstHalf);
+  const ot=(+p.otDays||0)*(+p.otRate||0);
+  const holiday=(+p.holidayDays||0)*(+p.holidayRate||0);
+  const skinComm=(e.commEligible)?payCommission(p.skinBase):0;
+  const df=+p.df||0,handFee=+p.handFee||0,prodComm=+p.prodComm||0,bonus=+p.bonus||0;
+  const extras=df+handFee+prodComm+ot+holiday+bonus+skinComm;
+  const secondGross=secondBase+extras;
+  const sso=+p.sso||0,wht=+p.wht||0,deductions=sso+wht;
+  const secondNet=secondGross-deductions;
+  const monthTotal=secondNet+firstHalf;
+  return {baseSalary,firstHalf,secondBase,ot,holiday,skinComm,df,handFee,prodComm,bonus,extras,secondGross,sso,wht,deductions,secondNet,monthTotal};
+}
+function payMonths(){const ms=[...new Set((db.payroll||[]).map(p=>p.month))];const cur=new Date().toISOString().slice(0,7);if(!ms.includes(cur))ms.push(cur);return ms.sort();}
+function renderPayroll(){
+  const sel=$('#payMonth');if(!sel)return;
+  const months=payMonths();const withData=[...new Set((db.payroll||[]).map(p=>p.month))].sort();
+  const def=withData.length?withData[withData.length-1]:months[months.length-1];
+  const cur=sel.value&&months.includes(sel.value)?sel.value:def;
+  sel.innerHTML=months.slice().reverse().map(m=>`<option value="${m}" ${m===cur?'selected':''}>${monthLabel(m)}</option>`).join('');
+  const ym=sel.value;
+  const rows=(db.payroll||[]).filter(p=>p.month===ym).map(p=>Object.assign({},p,{_c:payCompute(p)}));
+  const tot=rows.reduce((a,r)=>({gross:a.gross+r._c.secondGross+r._c.firstHalf,ded:a.ded+r._c.deductions,net:a.net+r._c.monthTotal}),{gross:0,ded:0,net:0});
+  $('#payKpis').innerHTML=[
+    kpiMini('Employees',String(rows.length),'on this run'),
+    kpiMini('Gross',money(tot.gross),'incl. first half'),
+    kpiMini('Deductions',money(tot.ded),'SSO + WHT'),
+    kpiMini('Net Paid',money(tot.net),'take-home')
+  ].join('');
+  if(!rows.length){$('#payTable').innerHTML=emptyState('wallet','No payroll for '+monthLabel(ym),'Add an employee to this month’s payroll.',`<button class="btn" onclick="openPayEntry()">${ic('plus')} Add to Payroll</button>`);return;}
+  $('#payTable').innerHTML=`<table><thead><tr><th>Employee</th><th>Position</th><th class="num">Base</th><th class="num">1st Half</th><th class="num">Extras</th><th class="num">2nd Gross</th><th class="num">Deduct</th><th class="num">2nd Net</th><th class="num">Month Total</th><th></th></tr></thead><tbody>${rows.map(p=>{const e=empById(p.eid)||{};const c=p._c;return `<tr>
+    <td><strong>${esc(e.name||p.eid)}</strong>${e.nick?` <span class="muted">(${esc(e.nick)})</span>`:''}</td>
+    <td>${esc(e.position||'')}</td>
+    <td class="num">${money(c.baseSalary)}</td><td class="num">${money(c.firstHalf)}</td>
+    <td class="num">${money(c.extras)}</td><td class="num">${money(c.secondGross)}</td>
+    <td class="num" style="color:var(--bad)">${money(c.deductions)}</td><td class="num">${money(c.secondNet)}</td>
+    <td class="num"><strong>${money(c.monthTotal)}</strong></td>
+    <td><div class="rowact"><button class="iconbtn" title="Print payslip" onclick="printPayslip('${p.id}')" aria-label="Payslip">${ic('doc')}</button><button class="iconbtn" onclick="editPayEntry('${p.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delPayEntry('${p.id}')" aria-label="Delete">${ic('trash')}</button></div></td>
+  </tr>`;}).join('')}<tr style="background:var(--surface-2)"><td colspan="2" style="text-align:right"><strong>Total</strong></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"><strong style="color:var(--bad)">${money(tot.ded)}</strong></td><td class="num"></td><td class="num"><strong>${money(tot.net)}</strong></td><td></td></tr></tbody></table>`;
+}
+$('#payMonth')&&$('#payMonth').addEventListener('change',renderPayroll);
+function openPayEntry(existing){
+  const p=existing||{},edit=!!existing;
+  const month=p.month||($('#payMonth')&&$('#payMonth').value)||new Date().toISOString().slice(0,7);
+  const emps=(db.employees||[]).filter(e=>e.active!==false||e.id===p.eid);
+  const autoSkin=skinSalesForMonth(prevMonth(month));
+  const body=`
+   <div class="grid3">
+     <div class="field"><label>Employee<span class="req">*</span></label><select id="py_eid">${emps.map(e=>`<option value="${e.id}" ${e.id===p.eid?'selected':''}>${esc(e.name)}${e.nick?' ('+esc(e.nick)+')':''}</option>`).join('')||'<option value="">— add an employee first —</option>'}</select>${errHtml('Select an employee')}</div>
+     <div class="field"><label>Month<span class="req">*</span></label><input type="month" id="py_month" value="${month}"></div>
+     <div class="field"><label>First-half advance (จ่ายล่วงหน้า)</label><input type="number" id="py_first" min="0" step="0.01" value="${p.firstHalf??0}"></div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>OT days × rate</label><div style="display:flex;gap:6px"><input type="number" id="py_otd" min="0" step="1" placeholder="days" value="${p.otDays??0}" style="width:50%"><input type="number" id="py_otr" min="0" step="1" placeholder="rate" value="${p.otRate??300}" style="width:50%"></div></div>
+     <div class="field"><label>Holiday days × rate</label><div style="display:flex;gap:6px"><input type="number" id="py_hd" min="0" step="1" placeholder="days" value="${p.holidayDays??0}" style="width:50%"><input type="number" id="py_hr" min="0" step="1" placeholder="rate" value="${p.holidayRate??500}" style="width:50%"></div></div>
+     <div class="field"><label>Bonus / เงินพิเศษ</label><input type="number" id="py_bonus" min="0" step="0.01" value="${p.bonus??0}"></div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>DF (แพทย์)</label><input type="number" id="py_df" min="0" step="0.01" value="${p.df??0}"></div>
+     <div class="field"><label>ค่ามือ (hand fee)</label><input type="number" id="py_hand" min="0" step="0.01" value="${p.handFee??(empById(p.eid)||{}).handFee??0}"></div>
+     <div class="field"><label>Product commission (ขายของ)</label><input type="number" id="py_prod" min="0" step="0.01" value="${p.prodComm??0}"></div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>Skin-sales base (commission)<span class="hint" style="font-weight:400;color:var(--ink-3)"> — auto: prev month, excl. ED/Intima/Tesla/Anal</span></label><div style="display:flex;gap:6px"><input type="number" id="py_skin" min="0" step="0.01" value="${p.skinBase??Math.round(autoSkin)}" style="flex:1"><button type="button" class="btn sec sm" onclick="$('#py_skin').value=${Math.round(autoSkin)};payEntryPreview()" title="Auto from app sales (${monthLabel(prevMonth(month))})">Auto</button></div></div>
+     <div class="field"><label>Social security (ประกันสังคม)</label><input type="number" id="py_sso" min="0" step="0.01" value="${p.sso??875}"></div>
+     <div class="field"><label>Withholding tax (หัก ณ ที่จ่าย)</label><input type="number" id="py_wht" min="0" step="0.01" value="${p.wht??0}"></div>
+   </div>
+   <div class="field"><label>Notes</label><input id="py_notes" value="${esc(p.notes||'')}" placeholder="Optional…"></div>
+   <div class="dnote" id="py_preview" style="margin-top:var(--s2)"></div>`;
+  const footer=`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="savePayEntry(${edit?`'${p.id}'`:'null'})">${edit?'Update':'Add'} payroll</button>`;
+  showModal(edit?'Edit Payroll · '+(empName(p.eid)||p.id):'Add to Payroll',body,footer);
+  ['py_eid','py_first','py_otd','py_otr','py_hd','py_hr','py_bonus','py_df','py_hand','py_prod','py_skin','py_sso','py_wht'].forEach(id=>{const el=$('#'+id);if(el){el.addEventListener('input',payEntryPreview);el.addEventListener('change',payEntryPreview);}});
+  payEntryPreview();
+}
+function payEntryFormObj(){const g=id=>$('#'+id)?$('#'+id).value:'';return {eid:g('py_eid'),month:g('py_month'),firstHalf:+g('py_first')||0,otDays:+g('py_otd')||0,otRate:+g('py_otr')||0,holidayDays:+g('py_hd')||0,holidayRate:+g('py_hr')||0,bonus:+g('py_bonus')||0,df:+g('py_df')||0,handFee:+g('py_hand')||0,prodComm:+g('py_prod')||0,skinBase:+g('py_skin')||0,sso:+g('py_sso')||0,wht:+g('py_wht')||0,notes:g('py_notes')};}
+function payEntryPreview(){const c=payCompute(payEntryFormObj());if($('#py_preview'))$('#py_preview').innerHTML=`Skin commission <strong>${money(c.skinComm)}</strong> · 2nd-half gross <strong>${money(c.secondGross)}</strong> · deductions <strong>${money(c.deductions)}</strong> · 2nd-half net <strong>${money(c.secondNet)}</strong> · <strong>month total ${money(c.monthTotal)}</strong>`;}
+function savePayEntry(editId){
+  const o=payEntryFormObj();let ok=true;
+  let b=!o.eid;markBad('py_eid',b);if(b)ok=false;
+  b=!o.month;markBad('py_month',b);if(b)ok=false;
+  if(ok&&!editId&&(db.payroll||[]).some(p=>p.eid===o.eid&&p.month===o.month)){toast('This employee already has a payroll entry for '+monthLabel(o.month),'alert');return;}
+  if(!ok){toast('Please fix the highlighted fields','alert');return;}
+  const rec=Object.assign({id:editId||('PR-'+db.seq.pay)},o);
+  if(editId){db.payroll[db.payroll.findIndex(x=>x.id===editId)]=rec;}else{db.payroll.unshift(rec);db.seq.pay++;}
+  if($('#payMonth'))$('#payMonth').value=o.month;
+  save();renderAll();closeModal();toast(editId?'Payroll updated':'Added to payroll','check');
+}
+function editPayEntry(id){openPayEntry((db.payroll||[]).find(x=>x.id===id));}
+function delPayEntry(id){if(!confirm('Remove this payroll entry?'))return;db.payroll=db.payroll.filter(x=>x.id!==id);save();renderAll();toast('Payroll entry removed','check');}
+/* ---- Employee management ---- */
+function openEmployees(){
+  const list=(db.employees||[]).map(e=>`<div class="appt-row" style="padding:9px var(--s4)"><div class="info"><div class="nm">${esc(e.name)} ${e.nick?`<span class="muted">(${esc(e.nick)})</span>`:''}</div><div class="sv">${esc(e.position||'')} · ฐาน ${money(e.baseSalary||0)}${e.commEligible?' · commission':''}${e.active===false?' · <span style="color:var(--bad)">inactive</span>':''}</div></div><div class="rowact"><button class="iconbtn" onclick="openEmployee('${e.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delEmployee('${e.id}')" aria-label="Delete">${ic('trash')}</button></div></div>`).join('')||'<div style="padding:var(--s4);color:var(--ink-3)">No employees yet.</div>';
+  showModal('Employees',`<div class="bd flush" style="border:1px solid var(--line);border-radius:var(--r-sm);max-height:340px;overflow:auto">${list}</div>`,`<button class="btn sec" onclick="closeModal()">Close</button><button class="btn" onclick="openEmployee()">${ic('plus')} New Employee</button>`);
+}
+function openEmployee(id){
+  const e=(db.employees||[]).find(x=>x.id===id)||{},edit=!!id;
+  const body=`
+   <div class="grid2">
+     <div class="field"><label>Full Name<span class="req">*</span></label><input id="em_name" value="${esc(e.name||'')}">${errHtml('Required')}</div>
+     <div class="field"><label>Nickname (ชื่อเล่น)</label><input id="em_nick" value="${esc(e.nick||'')}"></div>
+   </div>
+   <div class="grid2">
+     <div class="field"><label>Position (ตำแหน่ง)</label><input id="em_pos" value="${esc(e.position||'')}"></div>
+     <div class="field"><label>Base Salary (ฐานเงินเดือน)<span class="req">*</span></label><input type="number" id="em_base" min="0" step="0.01" value="${e.baseSalary??''}">${errHtml('Required')}</div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>Default SSO (ประกันสังคม)</label><input type="number" id="em_sso" min="0" step="0.01" value="${e.sso??875}"></div>
+     <div class="field"><label>Default ค่ามือ (hand fee)</label><input type="number" id="em_hand" min="0" step="0.01" value="${e.handFee??0}"></div>
+     <div class="field"><label>Status</label><select id="em_active">${opts(['Active','Inactive'],e.active===false?'Inactive':'Active')}</select></div>
+   </div>
+   <div class="grid2">
+     <div class="field"><label>Skin-sales commission?</label><select id="em_comm">${opts(['No','Yes'],e.commEligible?'Yes':'No')}</select></div>
+     <div class="field"><label>Role</label><select id="em_role">${opts(['manager','assistant','doctor','therapist','other'],e.role||'other')}</select></div>
+   </div>`;
+  const footer=`<button class="btn sec" onclick="openEmployees()">Back</button><button class="btn" onclick="saveEmployee(${edit?`'${e.id}'`:'null'})">${edit?'Update':'Save'} employee</button>`;
+  showModal(edit?'Edit Employee':'New Employee',body,footer);
+}
+function saveEmployee(editId){
+  const g=id=>$('#'+id).value;let ok=true;
+  let b=!g('em_name').trim();markBad('em_name',b);if(b)ok=false;
+  b=!(+g('em_base')>0);markBad('em_base',b);if(b)ok=false;
+  if(!ok){toast('Please fill required fields','alert');return;}
+  const rec={id:editId||('EMP-'+String(db.seq.emp).padStart(3,'0')),name:g('em_name').trim(),nick:g('em_nick').trim(),position:g('em_pos').trim(),role:g('em_role'),baseSalary:+g('em_base')||0,sso:+g('em_sso')||0,handFee:+g('em_hand')||0,commEligible:g('em_comm')==='Yes',active:g('em_active')!=='Inactive'};
+  if(editId){db.employees[db.employees.findIndex(x=>x.id===editId)]=rec;}else{db.employees.unshift(rec);db.seq.emp++;}
+  save();renderAll();openEmployees();toast(editId?'Employee updated':'Employee added','check');
+}
+function delEmployee(id){if((db.payroll||[]).some(p=>p.eid===id)){toast('Cannot delete — employee has payroll entries','alert');return;}if(!confirm('Delete this employee?'))return;db.employees=db.employees.filter(x=>x.id!==id);save();renderAll();openEmployees();toast('Employee deleted','check');}
+/* ---- Payslip (per employee) + summary ---- */
+function printPayslip(id){
+  const p=(db.payroll||[]).find(x=>x.id===id);if(!p){toast('Entry not found','alert');return;}
+  const e=empById(p.eid)||{},c=payCompute(p),clinic=(db.master&&db.master.clinic)||{};
+  const earnRows=[['เงินเดือน (ครึ่งหลัง)','ฐาน '+m0(c.baseSalary)+' − ครึ่งแรก '+m0(c.firstHalf),c.secondBase],
+    e.commEligible?['Commission ยอดขาย Skin','ฐาน '+m0(p.skinBase),c.skinComm]:null,
+    c.prodComm?['Commission ขายของ','-',c.prodComm]:null,
+    c.df?['DF (แพทย์)','-',c.df]:null,
+    c.handFee?['ค่ามือ (ผู้ช่วยแพทย์)','-',c.handFee]:null,
+    c.ot?['OT (ล่วงเวลา)',(+p.otDays)+' วัน × '+m0(p.otRate),c.ot]:null,
+    c.holiday?['ทำงานวันหยุด',(+p.holidayDays)+' วัน × '+m0(p.holidayRate),c.holiday]:null,
+    c.bonus?['เงินพิเศษ / Bonus','-',c.bonus]:null
+  ].filter(Boolean).map(r=>`<tr><td class="hl">${esc(r[0])}</td><td>${esc(r[1])}</td><td class="hl">${m0(r[2])}</td></tr>`).join('');
+  const dedRows=`<tr><td class="dd">ประกันสังคม</td><td>เดือนปัจจุบัน</td><td class="dd">${m0(c.sso)}</td></tr><tr><td class="dd">หัก ณ ที่จ่าย</td><td>-</td><td class="dd">${m0(c.wht)}</td></tr>`;
+  const doc='<!doctype html><html lang="th"><head><meta charset="utf-8"><title>Payslip — '+esc(e.name||'')+'</title><style>'+
+    '*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Sarabun","TH Sarabun New",Tahoma,Arial,sans-serif;background:#fff;color:#1a1a2e;padding:0;font-size:13px}'+
+    '.ps{max-width:760px;margin:0 auto}.hd{background:linear-gradient(135deg,#1a1a2e,#16213e 60%,#0f3460);color:#fff;padding:26px 34px}'+
+    '.co{font-size:22px;font-weight:700;letter-spacing:1px}.tt{font-size:12px;opacity:.75;letter-spacing:2px;text-transform:uppercase;margin-top:3px}.pd{display:inline-block;background:rgba(255,255,255,.15);border-radius:20px;padding:4px 13px;font-size:12px;margin-top:10px}'+
+    '.bd{padding:24px 34px}.ig{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f8f9fc;border-radius:8px;padding:16px 18px;margin-bottom:20px}.ig label{font-size:10px;color:#888;text-transform:uppercase}.ig .v{font-size:14px;font-weight:600;margin-top:2px}'+
+    '.st{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:8px}table{width:100%;border-collapse:collapse;margin-bottom:18px}th{background:#f1f3f8;font-size:11px;color:#555;padding:8px 11px;text-align:left}th:last-child{text-align:right}td{padding:8px 11px;font-size:13px;border-bottom:1px solid #f0f0f0}td:last-child{text-align:right}'+
+    '.sub td{background:#f8f9fc;font-weight:700}.dd{color:#e74c3c}.hl{color:#27ae60}'+
+    '.np{background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}.np .l{font-size:12px;opacity:.8}.np .a{font-size:26px;font-weight:700}'+
+    '@media print{@page{margin:8mm}}'+
+    '</style></head><body><div class="ps"><div class="hd"><div class="co">'+esc(clinic.nameEn||'VISAGE')+'</div><div class="tt">ใบสรุปเงินเดือน / Payslip</div><div class="pd">'+esc(monthLabel(p.month))+'</div></div>'+
+    '<div class="bd"><div class="ig"><div><label>ชื่อ-นามสกุล</label><div class="v">'+esc(e.name||'')+'</div></div><div><label>ชื่อเล่น</label><div class="v">'+esc(e.nick||'-')+'</div></div><div><label>ตำแหน่ง</label><div class="v">'+esc(e.position||'')+'</div></div><div><label>เดือน / รอบจ่าย</label><div class="v">'+esc(monthLabel(p.month))+'</div></div></div>'+
+    '<div class="st">ครึ่งแรก / First Half</div><table><thead><tr><th>รายการ</th><th>หมายเหตุ</th><th>จำนวน (บาท)</th></tr></thead><tbody><tr><td>เงินเดือนครึ่งแรก</td><td>จ่ายล่วงหน้า</td><td>'+m0(c.firstHalf)+'</td></tr><tr class="sub"><td colspan="2"><strong>รวมครึ่งแรก</strong></td><td><strong>'+m0(c.firstHalf)+'</strong></td></tr></tbody></table>'+
+    '<div class="st">ครึ่งหลัง / Second Half</div><table><thead><tr><th>รายการ</th><th>หมายเหตุ</th><th>จำนวน (บาท)</th></tr></thead><tbody>'+earnRows+'<tr class="sub"><td colspan="2"><strong>รวมรายได้ (ครึ่งหลัง)</strong></td><td><strong>'+m0(c.secondGross)+'</strong></td></tr></tbody></table>'+
+    '<div class="st">รายการหัก / Deductions</div><table><thead><tr><th>รายการ</th><th>หมายเหตุ</th><th>จำนวน (บาท)</th></tr></thead><tbody>'+dedRows+'<tr class="sub"><td colspan="2"><strong>รวมหัก</strong></td><td><strong class="dd">'+m0(c.deductions)+'</strong></td></tr></tbody></table>'+
+    '<div class="np"><div><div class="l">เงินเดือนสุทธิ (ครึ่งหลัง)</div><div class="a">'+m0(c.secondNet)+'</div></div><div style="text-align:right"><div class="l">รวมทั้งเดือน (รวมครึ่งแรก '+m0(c.firstHalf)+')</div><div class="a">'+m0(c.monthTotal)+'</div></div></div>'+
+    (p.notes?'<div style="margin-top:14px;font-size:12px;color:#666"><b>หมายเหตุ:</b> '+esc(p.notes)+'</div>':'')+
+    '</div></div></body></html>';
+  printHtmlDoc(doc);
+}
+function payrollReport(){
+  const ym=($('#payMonth')&&$('#payMonth').value)||new Date().toISOString().slice(0,7);
+  const rows=(db.payroll||[]).filter(p=>p.month===ym).map(p=>{const e=empById(p.eid)||{},c=payCompute(p);return {name:e.name||p.eid,nick:e.nick||'',pos:e.position||'',c};});
+  return {name:'Payroll '+ym,title:'Payroll Summary — '+monthLabel(ym),file:'Visage_Payroll_'+ym+'_'+nowFile(),filters:['Month '+ym],rows,
+    cols:[{l:'Employee',g:r=>r.name+(r.nick?' ('+r.nick+')':'')},{l:'Position',g:r=>r.pos},
+      {l:'Base',g:r=>r.c.baseSalary,num:true,total:true},{l:'1st Half',g:r=>r.c.firstHalf,num:true,total:true},
+      {l:'Commission',g:r=>r.c.skinComm+r.c.prodComm,num:true,total:true},{l:'OT+Holiday',g:r=>r.c.ot+r.c.holiday,num:true,total:true},
+      {l:'Other',g:r=>r.c.df+r.c.handFee+r.c.bonus,num:true,total:true},{l:'2nd Gross',g:r=>r.c.secondGross,num:true,total:true},
+      {l:'SSO',g:r=>r.c.sso,num:true,total:true},{l:'WHT',g:r=>r.c.wht,num:true,total:true},
+      {l:'2nd Net',g:r=>r.c.secondNet,num:true,total:true},{l:'Month Total',g:r=>r.c.monthTotal,num:true,total:true}]};
+}
+function printPayrollSummary(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}printReport(r);}
+function exportPayrollXls(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}exportXls(r);}
 /* ============ RENDER: MASTER ============ */
 function renderMaster(){
   const m=db.master;
@@ -2556,7 +2775,7 @@ function printMonthlyReport(){
   printHtmlDoc(doc);
 }
 /* ============ RENDER ALL ============ */
-function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderMaster();}
+function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderPayroll();renderMaster();}
 
 /* ============ ABOUT DOC ============ */
 function fieldRow(n,d,t,mo,ex,va){return `<tr><td><strong>${n}</strong></td><td>${d}</td><td>${t}</td><td><span class="dtag ${mo==='M'?'m':'o'}">${mo==='M'?'Mandatory':'Optional'}</span></td><td>${ex}</td><td>${va}</td></tr>`;}
