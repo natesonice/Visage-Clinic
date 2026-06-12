@@ -418,7 +418,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="salesdash">__I_trend__ Sales Dashboard</a>
       <a data-view="analytics">__I_chart__ Analytics</a>
       <a data-view="reports">__I_doc__ Reports</a>
+      <a data-view="tax">__I_receipt__ Tax (ภาษี)</a>
       <div class="lbl">Operations</div>
+      <a data-view="alerts">__I_alert__ Alerts</a>
       <a data-view="sales">__I_sales__ Sales</a>
       <a data-view="expenses">__I_exp__ Expenses</a>
       <a data-view="vendors">__I_box__ Vendors</a>
@@ -428,6 +430,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="promos">__I_megaphone__ Promotions</a>
       <a data-view="packages">__I_stack__ Packages</a>
       <a data-view="payroll">__I_wallet__ Payroll</a>
+      <a data-view="commitments">__I_cash__ Commitments</a>
       <div class="lbl">Configuration</div>
       <a data-view="master">__I_sliders__ Master Data</a>
       <a data-view="about">__I_doc__ About &amp; Design</a>
@@ -671,6 +674,46 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
         <div class="card"><div class="bd flush tbl-wrap" id="payTable"></div></div>
       </section>
 
+      <!-- COMMITMENTS -->
+      <section id="view-commitments" class="view">
+        <div class="phead"><div><h2>Commitments</h2><p>Installments &amp; recurring costs · cash-flow forecast</p></div><div class="grow"></div>
+          <button class="btn sec" onclick="printCommitments()" title="Print commitments + forecast">__I_print__ Print</button>
+          <button class="btn sec" onclick="exportCommitmentsXls()" title="Download as Excel">__I_sheet__ Excel</button>
+          <button class="btn" onclick="openCommitment()">__I_plus__ New Commitment</button></div>
+        <div class="kpis" id="cmKpis"></div>
+        <div class="card"><div class="hd"><h3>Commitments</h3><span class="sub">installments &amp; recurring</span></div><div class="bd flush tbl-wrap" id="cmTable"></div></div>
+        <div class="card"><div class="hd"><h3>Cash-flow forecast</h3><span class="sub">upcoming obligations</span></div><div class="bd flush tbl-wrap" id="cmForecast"></div></div>
+      </section>
+
+      <!-- TAX -->
+      <section id="view-tax" class="view">
+        <div class="phead"><div><h2>Tax (ภาษี)</h2><p>Withholding tax certificates &amp; monthly VAT / WHT summaries</p></div><div class="grow"></div>
+          <select id="taxMonth" onchange="renderTax()" title="Tax period"></select>
+          <button class="btn sec" onclick="printWhtSummary()" title="Print WHT summary (ภ.ง.ด.3/53)">__I_print__ WHT</button>
+          <button class="btn sec" onclick="printVatReport()" title="Print VAT report (ภ.พ.30)">__I_print__ VAT</button>
+          <button class="btn sec" onclick="exportTaxXls()" title="Download WHT + VAT as Excel">__I_sheet__ Excel</button></div>
+        <div class="kpis" id="taxKpis"></div>
+        <div class="card"><div class="hd"><h3>ภ.ง.ด.3 / 53 — Withholding Tax</h3><span class="sub">expenses with WHT</span></div><div class="bd flush tbl-wrap" id="whtTable"></div></div>
+        <div class="dash-grid g2">
+          <div class="card"><div class="hd"><h3>ภาษีซื้อ — Input VAT</h3><span class="sub">from expenses</span></div><div class="bd flush tbl-wrap" id="vatInTable"></div></div>
+          <div class="card"><div class="hd"><h3>ภาษีขาย — Output VAT</h3><span class="sub">from sales (est.)</span></div><div class="bd flush tbl-wrap" id="vatOutTable"></div></div>
+        </div>
+        <div class="card"><div class="hd"><h3>ภ.พ.30 — VAT Payable</h3></div><div class="bd" id="vatNet"></div></div>
+      </section>
+
+      <!-- ALERTS -->
+      <section id="view-alerts" class="view">
+        <div class="phead"><div><h2>Alerts</h2><p>Packages expiring, unpaid invoices &amp; low stock that need attention</p></div><div class="grow"></div>
+          <button class="btn sec" onclick="exportExpiringXls()" title="Download the expiring-packages follow-up list">__I_sheet__ Follow-up list</button></div>
+        <div class="kpis" id="alertKpis"></div>
+        <div class="card"><div class="hd"><h3>Packages expiring soon</h3><span class="sub">next 60 days</span></div><div class="bd flush tbl-wrap" id="alExpiring"></div></div>
+        <div class="dash-grid g2">
+          <div class="card"><div class="hd"><h3>Expired with sessions left</h3></div><div class="bd flush tbl-wrap" id="alExpired"></div></div>
+          <div class="card"><div class="hd"><h3>Low / out of stock</h3></div><div class="bd flush tbl-wrap" id="alStock"></div></div>
+        </div>
+        <div class="card"><div class="hd"><h3>Unpaid &amp; outstanding invoices</h3><span class="sub">by age</span></div><div class="bd flush tbl-wrap" id="alUnpaid"></div></div>
+      </section>
+
       <!-- MASTER -->
       <section id="view-master" class="view">
         <div class="phead"><div><h2>Master Data</h2><p>Edit these lists to update every dropdown across the app</p></div><div class="grow"></div>
@@ -775,8 +818,8 @@ const SERVICES_DEFAULT=[];
 function vendorsFromNames(names){return names.filter(n=>n&&n!=='Other').map((n,i)=>({id:'VN-'+String(i+1).padStart(3,'0'),name:n,contact:'',phone:'',email:'',taxId:'',terms:'',notes:''}));}
 function emptyDB(){
   return {master:JSON.parse(JSON.stringify(MASTER_DEFAULT)),services:JSON.parse(JSON.stringify(SERVICES_DEFAULT)),
-    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],employees:[],payroll:[],
-    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001,emp:1001,pay:1001}};
+    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],employees:[],payroll:[],commitments:[],
+    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001,emp:1001,pay:1001,cm:1001}};
 }
 /* ============ CLOUD (Supabase) ============ */
 const CFG_KEY='visage_sb_cfg', SES_KEY='visage_sb_session';
@@ -824,7 +867,7 @@ async function rest(method,path,body,headers,_retried){
 }
 async function fetchAllRecords(role){
   // staff never download expense or payroll/employee records (real data-level protection, not just hidden tabs)
-  const extra=role==='staff'?'&kind=not.in.(expense,payroll,employee)':'';
+  const extra=role==='staff'?'&kind=not.in.(expense,payroll,employee,commitment)':'';
   const out=[];const page=1000;let from=0;
   for(;;){
     const r=await rest('GET','records?select=kind,id,data&kind=neq.doc'+extra+'&order=kind.asc,id.asc',undefined,{Range:from+'-'+(from+page-1)});
@@ -848,12 +891,12 @@ function isStaff(){return ROLE==='staff';}
 function applyRole(){
   const staff=isStaff();
   // staff: hide full Dashboard + Expenses + Analytics, show the sales-only Sales Dashboard
-  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"],#nav a[data-view="payroll"]').forEach(a=>a.style.display=staff?'none':'');
+  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"],#nav a[data-view="payroll"],#nav a[data-view="tax"],#nav a[data-view="commitments"]').forEach(a=>a.style.display=staff?'none':'');
   const sd=document.querySelector('#nav a[data-view="salesdash"]');if(sd)sd.style.display=staff?'':'none';
   const rc=document.getElementById('roleChip');
   if(rc){rc.textContent=staff?'Staff':'Admin';rc.dataset.role=ROLE;rc.style.display='';}
   const cur=document.querySelector('.view.active');
-  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'||cur.id==='view-payroll'))go('salesdash');}
+  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'||cur.id==='view-payroll'||cur.id==='view-tax'||cur.id==='view-commitments'))go('salesdash');}
   else{if(cur&&cur.id==='view-salesdash')go('dashboard');}
 }
 function dbToRecords(){
@@ -868,6 +911,7 @@ function dbToRecords(){
   (db.packages||[]).forEach(x=>recs.push({kind:'package',id:String(x.id),data:x}));
   (db.employees||[]).forEach(x=>recs.push({kind:'employee',id:String(x.id),data:x}));
   (db.payroll||[]).forEach(x=>recs.push({kind:'payroll',id:String(x.id),data:x}));
+  (db.commitments||[]).forEach(x=>recs.push({kind:'commitment',id:String(x.id),data:x}));
   db.services.forEach(s=>recs.push({kind:'service',id:String(s.name),data:s}));
   recs.push({kind:'meta',id:'master',data:db.master});
   recs.push({kind:'meta',id:'seq',data:db.seq});
@@ -887,6 +931,7 @@ function applyRecords(rows){
     else if(r.kind==='package')(d.packages||(d.packages=[])).push(x);
     else if(r.kind==='employee')(d.employees||(d.employees=[])).push(x);
     else if(r.kind==='payroll')(d.payroll||(d.payroll=[])).push(x);
+    else if(r.kind==='commitment')(d.commitments||(d.commitments=[])).push(x);
     else if(r.kind==='service')d.services.push(x);
     else if(r.kind==='meta'&&r.id==='master'){d.master=Object.assign({},d.master,x);if(!d.master.admins)d.master.admins=[];}
     else if(r.kind==='meta'&&r.id==='seq')d.seq=Object.assign({},d.seq,x);});
@@ -1013,9 +1058,9 @@ function expRunningNext(period){let max=0;db.expenses.forEach(e=>{if(expPeriod(e
 function newExpId(period){const yymm=periodToYYMM(period);return yymm.length===4?yymm+'-'+expRunningNext(period):'';}
 
 /* ============ NAV / THEME ============ */
-const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',payroll:'Payroll',master:'Master Data',about:'About & Design'};
+const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',payroll:'Payroll',commitments:'Commitments',tax:'Tax (ภาษี)',alerts:'Alerts',master:'Master Data',about:'About & Design'};
 function go(view){
-  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'||view==='payroll'))view='salesdash';
+  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'||view==='payroll'||view==='tax'||view==='commitments'))view='salesdash';
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#view-'+view).classList.add('active');
@@ -2419,6 +2464,244 @@ function payrollReport(){
 }
 function printPayrollSummary(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}printReport(r);}
 function exportPayrollXls(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}exportXls(r);}
+/* ============ COMMITMENTS (installments & recurring costs) ============ */
+function cmAddMonths(ds,n){if(!ds)return '';const p=ds.split('-').map(Number);const dt=new Date(p[0],(p[1]-1)+n,p[2]||1);const z=x=>String(x).padStart(2,'0');return dt.getFullYear()+'-'+z(dt.getMonth()+1)+'-'+z(dt.getDate());}
+function cmIsInst(c){return c.type==='installment';}
+function cmStep(c){return c.frequency==='Yearly'?12:c.frequency==='Quarterly'?3:1;}
+function cmRemainCount(c){return cmIsInst(c)?Math.max(0,(+c.installments||0)-(+c.paidCount||0)):0;}
+function cmRemainAmt(c){return cmIsInst(c)?cmRemainCount(c)*(+c.perAmount||0):0;}
+function cmPer(c){return cmIsInst(c)?(+c.perAmount||0):(+c.amount||0);}
+function cmTotal(c){return cmIsInst(c)?(+c.installments||0)*(+c.perAmount||0):0;}
+function cmStatus(c){const today=new Date().toISOString().slice(0,10);if(cmIsInst(c))return cmRemainCount(c)<=0?'Completed':'Active';if(c.active===false)return 'Ended';if(c.endDate&&today>c.endDate)return 'Ended';return 'Active';}
+function cmNextDue(c){const today=new Date().toISOString().slice(0,10),step=cmStep(c);if(!c.startDate)return '';
+  if(cmIsInst(c)){if(cmRemainCount(c)<=0)return '';return cmAddMonths(c.startDate,(+c.paidCount||0)*step);}
+  if(cmStatus(c)==='Ended')return '';let d=c.startDate,g=0;while(d<today&&g<1200){d=cmAddMonths(d,step);g++;}if(c.endDate&&d>c.endDate)return '';return d;}
+// amount due from a commitment within calendar month ym (YYYY-MM)
+function cmDueInMonth(c,ym){const step=cmStep(c);
+  if(cmIsInst(c)){let sum=0,per=+c.perAmount||0;for(let k=+c.paidCount||0;k<(+c.installments||0);k++){if(cmAddMonths(c.startDate,k*step).slice(0,7)===ym)sum+=per;}return sum;}
+  if(c.active===false||!c.startDate)return 0;if(ym<c.startDate.slice(0,7))return 0;if(c.endDate&&ym>c.endDate.slice(0,7))return 0;
+  const s=c.startDate.split('-').map(Number),y=ym.split('-').map(Number),diff=(y[0]-s[0])*12+(y[1]-s[1]);return (diff>=0&&diff%step===0)?(+c.amount||0):0;}
+function cmForecast(n){const out=[],now=new Date();for(let i=0;i<n;i++){const dt=new Date(now.getFullYear(),now.getMonth()+i,1);const ym=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');let total=0;(db.commitments||[]).forEach(c=>{total+=cmDueInMonth(c,ym);});out.push({ym,total});}return out;}
+function renderCommitments(){
+  if(!$('#cmTable'))return;
+  const all=db.commitments||[];
+  const inst=all.filter(cmIsInst),rec=all.filter(c=>!cmIsInst(c));
+  const instBal=inst.reduce((a,c)=>a+cmRemainAmt(c),0);
+  const recMonthly=rec.filter(c=>cmStatus(c)==='Active').reduce((a,c)=>a+(+c.amount||0)/cmStep(c),0);
+  const thisYm=new Date().toISOString().slice(0,7),thisMonthDue=all.reduce((a,c)=>a+cmDueInMonth(c,thisYm),0);
+  $('#cmKpis').innerHTML=[
+    kpiMini('Active Commitments',String(all.filter(c=>cmStatus(c)==='Active').length),inst.length+' installments · '+rec.length+' recurring'),
+    kpiMini('Installment Balance',money(instBal),'remaining to pay'),
+    kpiMini('Recurring / month',money(Math.round(recMonthly)),'monthlyized'),
+    kpiMini('Due This Month',money(thisMonthDue),monthLabel(thisYm))
+  ].join('');
+  if(!all.length){$('#cmTable').innerHTML=emptyState('cash','No commitments yet','Add an equipment installment or a recurring cost to forecast cash flow.',`<button class="btn" onclick="openCommitment()">${ic('plus')} New Commitment</button>`);$('#cmForecast').innerHTML='';return;}
+  const rows=all.slice().sort((a,b)=>{const da=cmStatus(a)==='Active'?0:1,dbb=cmStatus(b)==='Active'?0:1;return da-dbb||(cmNextDue(a)||'9999').localeCompare(cmNextDue(b)||'9999');});
+  $('#cmTable').innerHTML=`<table><thead><tr><th>Name</th><th>Type</th><th>Vendor</th><th class="num">Per Payment</th><th>Schedule</th><th>Next Due</th><th class="num">Remaining</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(c=>{
+    const done=cmStatus(c);const sched=cmIsInst(c)?`งวด ${Math.min((+c.paidCount||0)+1,+c.installments||0)}/${+c.installments||0} · ${esc(c.frequency)}`:esc(c.frequency)+(c.endDate?` → ${esc(c.endDate)}`:'');
+    const rem=cmIsInst(c)?money(cmRemainAmt(c))+` <span class="muted">(${cmRemainCount(c)} งวด)</span>`:'—';
+    const pill=done==='Active'?'<span class="pill reimbursed">Active</span>':(done==='Completed'?'<span class="pill paid">Completed</span>':'<span class="pill unpaid">Ended</span>');
+    return `<tr>
+      <td><strong>${esc(c.name)}</strong>${c.cat?` <span class="muted">${esc(c.cat)}</span>`:''}</td>
+      <td>${cmIsInst(c)?'Installment':'Recurring'}</td><td>${esc(c.vendor||'—')}</td>
+      <td class="num">${money(cmPer(c))}</td><td>${sched}</td>
+      <td>${cmNextDue(c)?esc(cmNextDue(c)):'<span class="muted">—</span>'}</td>
+      <td class="num">${rem}</td><td>${pill}</td>
+      <td><div class="rowact">${(cmIsInst(c)&&cmRemainCount(c)>0)?`<button class="iconbtn" title="Mark next installment paid" onclick="payInstallment('${c.id}')" aria-label="Mark paid">${ic('check')}</button>`:''}<button class="iconbtn" onclick="editCommitment('${c.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delCommitment('${c.id}')" aria-label="Delete">${ic('trash')}</button></div></td>
+    </tr>`;}).join('')}</tbody></table>`;
+  const fc=cmForecast(6),fcTot=fc.reduce((a,m)=>a+m.total,0);
+  $('#cmForecast').innerHTML=`<table><thead><tr><th>Month</th><th class="num">Obligations</th></tr></thead><tbody>${fc.map(m=>`<tr><td>${esc(monthLabel(m.ym))}</td><td class="num">${m.total>0?money(m.total):'<span class="muted">—</span>'}</td></tr>`).join('')}<tr style="background:var(--surface-2)"><td><strong>Next 6 months</strong></td><td class="num"><strong>${money(fcTot)}</strong></td></tr></tbody></table>`;
+}
+function payInstallment(id){const c=(db.commitments||[]).find(x=>x.id===id);if(!c)return;if(cmRemainCount(c)<=0){toast('Fully paid','alert');return;}c.paidCount=(+c.paidCount||0)+1;save();renderAll();toast('Installment marked paid · '+cmRemainCount(c)+' งวดเหลือ','check');}
+function openCommitment(existing){
+  const c=existing||{type:'installment',frequency:'Monthly'},edit=!!existing,m=db.master;
+  const isRec=c.type==='recurring';
+  const body=`
+   <div class="grid2">
+     <div class="field"><label>Type<span class="req">*</span></label><select id="cm_type" onchange="cmTypeToggle()">${opts(['installment','recurring'],c.type||'installment')}</select></div>
+     <div class="field"><label>Name<span class="req">*</span></label><input id="cm_name" value="${esc(c.name||'')}" placeholder="e.g. Laser installment / Rent">${errHtml('Required')}</div>
+   </div>
+   <div class="grid2">
+     <div class="field"><label>Vendor</label><input id="cm_vendor" list="cmVendors" value="${esc(c.vendor||'')}"><datalist id="cmVendors">${(db.vendors||[]).map(v=>`<option value="${esc(v.name)}">`).join('')}</datalist></div>
+     <div class="field"><label>Category</label><select id="cm_cat">${opts(['(none)'].concat(m.expenseCategories),c.cat||'(none)')}</select></div>
+   </div>
+   <div class="grid3">
+     <div class="field"><label>Frequency</label><select id="cm_freq">${opts(['Monthly','Quarterly','Yearly'],c.frequency||'Monthly')}</select></div>
+     <div class="field"><label>Start / First due<span class="req">*</span></label><input type="date" id="cm_start" value="${c.startDate||new Date().toISOString().slice(0,10)}">${errHtml('Required')}</div>
+     <div class="field" id="cm_endwrap" style="${isRec?'':'display:none'}"><label>End date (optional)</label><input type="date" id="cm_end" value="${c.endDate||''}"></div>
+   </div>
+   <div class="grid3" id="cm_instfields" style="${isRec?'display:none':''}">
+     <div class="field"><label>Amount per installment</label><input type="number" id="cm_per" min="0" step="0.01" value="${c.perAmount??''}" oninput="cmPreview()"></div>
+     <div class="field"><label>No. of installments</label><input type="number" id="cm_n" min="1" step="1" value="${c.installments??''}" oninput="cmPreview()"></div>
+     <div class="field"><label>Already paid</label><input type="number" id="cm_paid" min="0" step="1" value="${c.paidCount??0}" oninput="cmPreview()"></div>
+   </div>
+   <div class="field" id="cm_recfields" style="${isRec?'':'display:none'}"><label>Amount per period</label><input type="number" id="cm_amt" min="0" step="0.01" value="${c.amount??''}" oninput="cmPreview()"></div>
+   <div class="field"><label>Notes</label><input id="cm_notes" value="${esc(c.notes||'')}" placeholder="Optional…"></div>
+   <div class="dnote" id="cm_preview" style="margin-top:var(--s2)"></div>`;
+  const footer=`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveCommitment(${edit?`'${c.id}'`:'null'})">${edit?'Update':'Add'} commitment</button>`;
+  showModal(edit?'Edit Commitment':'New Commitment',body,footer);cmPreview();
+}
+function cmTypeToggle(){const isRec=$('#cm_type').value==='recurring';$('#cm_instfields').style.display=isRec?'none':'';$('#cm_recfields').style.display=isRec?'':'none';$('#cm_endwrap').style.display=isRec?'':'none';cmPreview();}
+function cmFormObj(){const g=id=>$('#'+id)?$('#'+id).value:'';return {type:g('cm_type'),name:g('cm_name').trim(),vendor:g('cm_vendor').trim(),cat:g('cm_cat')==='(none)'?'':g('cm_cat'),frequency:g('cm_freq'),startDate:g('cm_start'),endDate:g('cm_end'),perAmount:+g('cm_per')||0,installments:+g('cm_n')||0,paidCount:+g('cm_paid')||0,amount:+g('cm_amt')||0,notes:g('cm_notes').trim()};}
+function cmPreview(){const c=cmFormObj();if(!$('#cm_preview'))return;if(cmIsInst(c)){$('#cm_preview').innerHTML=`Total <strong>${money(cmTotal(c))}</strong> · paid <strong>${c.paidCount||0}/${c.installments||0}</strong> · remaining <strong>${money(cmRemainAmt(c))}</strong> · next due <strong>${cmNextDue(c)||'—'}</strong>`;}else{$('#cm_preview').innerHTML=`Recurring <strong>${money(c.amount)}</strong> / ${esc(c.frequency)} · ≈ <strong>${money(Math.round((+c.amount||0)/cmStep(c)))}</strong>/month · next due <strong>${cmNextDue(c)||'—'}</strong>`;}}
+function saveCommitment(editId){
+  const o=cmFormObj();let ok=true;
+  let b=!o.name;markBad('cm_name',b);if(b)ok=false;
+  b=!o.startDate;markBad('cm_start',b);if(b)ok=false;
+  if(o.type==='installment'&&!(o.installments>0&&o.perAmount>0)){toast('Set amount per installment and number of installments','alert');ok=false;}
+  if(o.type==='recurring'&&!(o.amount>0)){toast('Set the recurring amount','alert');ok=false;}
+  if(!ok){return;}
+  const rec=Object.assign({id:editId||('CM-'+db.seq.cm),active:true},o);
+  if(editId){const old=db.commitments.find(x=>x.id===editId)||{};rec.active=old.active!==false;db.commitments[db.commitments.findIndex(x=>x.id===editId)]=rec;}else{db.commitments.unshift(rec);db.seq.cm++;}
+  save();renderAll();closeModal();toast(editId?'Commitment updated':'Commitment added','check');
+}
+function editCommitment(id){openCommitment((db.commitments||[]).find(x=>x.id===id));}
+function delCommitment(id){if(!confirm('Delete this commitment?'))return;db.commitments=db.commitments.filter(x=>x.id!==id);save();renderAll();toast('Commitment deleted','check');}
+function commitmentsReport(){
+  const rows=(db.commitments||[]).slice().sort((a,b)=>(cmNextDue(a)||'9999').localeCompare(cmNextDue(b)||'9999'));
+  return {name:'Commitments',title:'Installments & Recurring Costs',file:'Visage_Commitments_'+nowFile(),filters:[],rows,
+    cols:[{l:'Name',g:c=>c.name},{l:'Type',g:c=>cmIsInst(c)?'Installment':'Recurring'},{l:'Vendor',g:c=>c.vendor||''},{l:'Category',g:c=>c.cat||''},
+      {l:'Per Payment',g:c=>cmPer(c),num:true,total:true},{l:'Frequency',g:c=>c.frequency},{l:'Schedule',g:c=>cmIsInst(c)?(c.paidCount+'/'+c.installments):'recurring'},
+      {l:'Next Due',g:c=>cmNextDue(c)||''},{l:'Remaining',g:c=>cmRemainAmt(c),num:true,total:true},{l:'Status',g:c=>cmStatus(c)}]};
+}
+function printCommitments(){
+  const r=commitmentsReport();if(!r.rows.length){toast('No commitments','alert');return;}
+  const fc=cmForecast(12),c=(db.master&&db.master.clinic)||{};
+  const fcRows=fc.map(m=>`<tr><td>${esc(monthLabel(m.ym))}</td><td class="n">${m.total>0?m0(m.total):'-'}</td></tr>`).join('');
+  const fcTot=fc.reduce((a,m)=>a+m.total,0);
+  const body=r.rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${cmIsInst(x)?'Installment':'Recurring'}</td><td>${esc(x.vendor||'-')}</td><td class="n">${m0(cmPer(x))}</td><td>${esc(x.frequency)}${cmIsInst(x)?' ('+x.paidCount+'/'+x.installments+')':''}</td><td>${esc(cmNextDue(x)||'-')}</td><td class="n">${m0(cmRemainAmt(x))}</td><td>${cmStatus(x)}</td></tr>`).join('');
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>Commitments</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:18px;margin:0 0 2px}.sub{color:#666;font-size:10px;margin:2px 0 12px;border-bottom:2px solid #a97c43;padding-bottom:8px}h2{font-size:13px;margin:14px 0 5px;color:#a97c43}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #d6d6d3;padding:4px 7px;text-align:left}th{background:#111;color:#fff;font-size:10px}td.n,th.n{text-align:right;white-space:nowrap}tfoot td{background:#ECECEC;font-weight:bold}'+
+    '@media print{@page{size:landscape;margin:9mm}}'+
+    '</style></head><body><h1>Installments &amp; Recurring Costs</h1><div class="sub">'+esc(c.nameTh||'Visage Clinic')+' · Generated '+nowStamp()+'</div>'+
+    '<table><thead><tr><th>Name</th><th>Type</th><th>Vendor</th><th class="n">Per Payment</th><th>Schedule</th><th>Next Due</th><th class="n">Remaining</th><th>Status</th></tr></thead><tbody>'+body+'</tbody></table>'+
+    '<h2>Cash-flow forecast — next 12 months</h2><table><thead><tr><th>Month</th><th class="n">Obligations</th></tr></thead><tbody>'+fcRows+'</tbody><tfoot><tr><td>Total (12 months)</td><td class="n">'+m0(fcTot)+'</td></tr></tfoot></table>'+
+    '</body></html>';
+  printHtmlDoc(doc);
+}
+function exportCommitmentsXls(){const r=commitmentsReport();if(!r.rows.length){toast('No commitments','alert');return;}exportXls(r);}
+/* ============ THAI TAX PACK (WHT + VAT) ============ */
+const VAT_RATE=0.07; // output VAT assumes VAT-inclusive sale prices at 7%
+function vendorTaxId(name){const v=(db.vendors||[]).find(x=>x.name===name);return (v&&v.taxId)?v.taxId:'';}
+function custPhone(cid){const c=(db.customers||[]).find(x=>x.id===cid);return c?(c.phone||''):'';}
+function taxMonths(){const m=new Set();(db.expenses||[]).forEach(e=>m.add(expPeriod(e)));(db.sales||[]).forEach(s=>m.add((s.date||'').slice(0,7)));return [...m].filter(Boolean).sort();}
+function whtRows(ym){return (db.expenses||[]).filter(e=>expPeriod(e)===ym&&(+e.wht||0)>0.001).map(e=>({e,base:+e.amt||0,wht:+e.wht||0,rate:e.whtrate?Math.round(e.whtrate*1000)/10:((+e.amt)?Math.round((+e.wht/+e.amt)*1000)/10:0)}));}
+function vatInRows(ym){return (db.expenses||[]).filter(e=>expPeriod(e)===ym&&(+e.tax||0)>0.001).map(e=>({e,base:+e.amt||0,vat:+e.tax||0}));}
+function vatOutRows(ym){return (db.sales||[]).filter(s=>(s.date||'').slice(0,7)===ym).map(s=>{const base=Math.round(s.net/(1+VAT_RATE)*100)/100,vat=Math.round((s.net-base)*100)/100;return {s,base,vat};});}
+function renderTax(){
+  const sel=$('#taxMonth');if(!sel)return;
+  const months=taxMonths();
+  if(!months.length){sel.innerHTML='<option value="">—</option>';$('#taxKpis').innerHTML='';['whtTable','vatInTable','vatOutTable','vatNet'].forEach(id=>$('#'+id).innerHTML=emptyState('receipt','No data','Record sales or expenses to build tax reports.'));return;}
+  const cur=sel.value&&months.includes(sel.value)?sel.value:months[months.length-1];
+  sel.innerHTML=months.slice().reverse().map(m=>`<option value="${m}" ${m===cur?'selected':''}>${monthLabel(m)}</option>`).join('');
+  const ym=sel.value;
+  const wht=whtRows(ym),vin=vatInRows(ym),vout=vatOutRows(ym);
+  const whtTot=wht.reduce((a,r)=>a+r.wht,0),vinTot=vin.reduce((a,r)=>a+r.vat,0),voutTot=vout.reduce((a,r)=>a+r.vat,0);
+  $('#taxKpis').innerHTML=[
+    kpiMini('WHT withheld',money(whtTot),wht.length+' รายการ (ภ.ง.ด.3/53)'),
+    kpiMini('Input VAT',money(vinTot),'ภาษีซื้อ · '+vin.length+' บิล'),
+    kpiMini('Output VAT',money(voutTot),'ภาษีขาย (est.)'),
+    kpiMini(voutTot-vinTot>=0?'VAT Payable':'VAT Refund',money(Math.abs(voutTot-vinTot)),'ภ.พ.30')
+  ].join('');
+  $('#whtTable').innerHTML=wht.length?`<table><thead><tr><th>Doc Date</th><th>ID</th><th>ผู้รับเงิน / Payee</th><th>เลขผู้เสียภาษี</th><th class="num">ฐาน</th><th class="num">%</th><th class="num">WHT</th><th></th></tr></thead><tbody>${wht.map(r=>`<tr><td>${esc(r.e.date||'')}</td><td>${esc(r.e.id)}</td><td>${esc(r.e.vendor||'—')}</td><td>${esc(vendorTaxId(r.e.vendor)||'—')}</td><td class="num">${money(r.base)}</td><td class="num">${r.rate}%</td><td class="num"><strong>${money(r.wht)}</strong></td><td><button class="iconbtn" title="พิมพ์ใบ 50 ทวิ" onclick="printWhtCertificate('${r.e.id}')" aria-label="WHT certificate">${ic('doc')}</button></td></tr>`).join('')}<tr style="background:var(--surface-2)"><td colspan="6" style="text-align:right"><strong>รวม WHT</strong></td><td class="num"><strong>${money(whtTot)}</strong></td><td></td></tr></tbody></table>`:emptyState('check','No WHT this period','No expenses had withholding tax.');
+  $('#vatInTable').innerHTML=vin.length?`<table><thead><tr><th>ID</th><th>Vendor</th><th>เลขภาษี</th><th class="num">ฐาน</th><th class="num">VAT</th></tr></thead><tbody>${vin.map(r=>`<tr><td>${esc(r.e.id)}</td><td>${esc(r.e.vendor||'—')}</td><td>${esc(vendorTaxId(r.e.vendor)||'—')}</td><td class="num">${money(r.base)}</td><td class="num">${money(r.vat)}</td></tr>`).join('')}<tr style="background:var(--surface-2)"><td colspan="3" style="text-align:right"><strong>รวมภาษีซื้อ</strong></td><td class="num"><strong>${money(vin.reduce((a,r)=>a+r.base,0))}</strong></td><td class="num"><strong>${money(vinTot)}</strong></td></tr></tbody></table>`:emptyState('check','No input VAT','No expenses with VAT this period.');
+  const voutBase=vout.reduce((a,r)=>a+r.base,0);
+  $('#vatOutTable').innerHTML=`<table><thead><tr><th>รายการ</th><th class="num">จำนวน</th><th class="num">มูลค่า</th></tr></thead><tbody>
+    <tr><td>ยอดขายรวม (incl. VAT)</td><td class="num">${vout.length}</td><td class="num">${money(vout.reduce((a,r)=>a+r.s.net,0))}</td></tr>
+    <tr><td>ฐานภาษี (ex VAT)</td><td class="num"></td><td class="num">${money(voutBase)}</td></tr>
+    <tr style="background:var(--surface-2)"><td><strong>ภาษีขาย / Output VAT</strong></td><td class="num"></td><td class="num"><strong>${money(voutTot)}</strong></td></tr></tbody></table>
+    <div class="dnote" style="margin-top:6px">ประมาณการจากราคาขายที่รวม VAT 7% แล้ว — ตรวจสอบว่าบริการใดต้องเสีย VAT</div>`;
+  const net=voutTot-vinTot;
+  $('#vatNet').innerHTML=`<div class="bars">
+    ${anStat('ภาษีขาย (Output VAT)',money(voutTot))}
+    ${anStat('หัก ภาษีซื้อ (Input VAT)',money(vinTot))}
+    ${anStat(net>=0?'ภาษีที่ต้องชำระ (VAT payable)':'ภาษีที่ขอคืน (VAT refund)','<strong>'+money(Math.abs(net))+'</strong>')}</div>`;
+}
+$('#taxMonth')&&$('#taxMonth').addEventListener('change',renderTax);
+function printWhtCertificate(expId){
+  const e=(db.expenses||[]).find(x=>x.id===expId);if(!e){toast('Expense not found','alert');return;}
+  const c=(db.master&&db.master.clinic)||{};const base=+e.amt||0,wht=+e.wht||0,rate=e.whtrate?Math.round(e.whtrate*1000)/10:(base?Math.round(wht/base*1000)/10:0);
+  const yearBE=(new Date(e.date||Date.now()).getFullYear())+543;
+  const doc='<!doctype html><html lang="th"><head><meta charset="utf-8"><title>50 ทวิ — '+esc(e.vendor||'')+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#000;margin:24px;font-size:13px}'+
+    '.doc{max-width:760px;margin:0 auto;border:1px solid #000;padding:18px 22px}h1{font-size:16px;text-align:center;margin:0 0 2px}.sub{text-align:center;font-size:11px;color:#444;margin-bottom:12px}'+
+    '.party{border:1px solid #999;border-radius:4px;padding:8px 10px;margin-bottom:8px;font-size:12.5px}.party b{display:inline-block;min-width:130px;color:#555}'+
+    'table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #000;padding:6px 8px}th{background:#eee;font-size:11px}td.n{text-align:right}'+
+    '.sign{display:flex;justify-content:space-between;margin-top:26px;font-size:12px}.sign .box{text-align:center;width:45%}.line{border-top:1px dotted #000;margin-top:34px;padding-top:3px}'+
+    '@media print{@page{size:A4;margin:12mm}}'+
+    '</style></head><body><div class="doc">'+
+    '<h1>หนังสือรับรองการหักภาษี ณ ที่จ่าย</h1><div class="sub">Withholding Tax Certificate · ตามมาตรา 50 ทวิ แห่งประมวลรัษฎากร</div>'+
+    '<div class="party"><b>ผู้มีหน้าที่หักภาษี:</b> '+esc(c.nameTh||c.nameEn||'')+'<br><b>เลขประจำตัวผู้เสียภาษี:</b> '+esc(c.taxId||'-')+'<br><b>ที่อยู่:</b> '+esc(c.address||'-')+'</div>'+
+    '<div class="party"><b>ผู้ถูกหักภาษี (Payee):</b> '+esc(e.vendor||'-')+'<br><b>เลขประจำตัวผู้เสียภาษี:</b> '+esc(vendorTaxId(e.vendor)||'-')+'</div>'+
+    '<table><thead><tr><th>ประเภทเงินได้ / Type</th><th>วันที่จ่าย</th><th class="n">จำนวนเงิน (ฐาน)</th><th class="n">อัตรา %</th><th class="n">ภาษีที่หัก (WHT)</th></tr></thead>'+
+    '<tbody><tr><td>'+esc(e.cat||'ค่าบริการ')+(e.sub?' — '+esc(e.sub):'')+'</td><td>'+esc(e.date||'-')+'</td><td class="n">'+m0(base)+'</td><td class="n">'+rate+'%</td><td class="n">'+m0(wht)+'</td></tr>'+
+    '<tr><td colspan="2" style="text-align:right"><b>รวม</b></td><td class="n"><b>'+m0(base)+'</b></td><td></td><td class="n"><b>'+m0(wht)+'</b></td></tr></tbody></table>'+
+    '<div style="font-size:12px">จำนวนเงินภาษีที่หักและนำส่ง (ตัวอักษร): <b>'+esc(bahtText(wht))+'</b></div>'+
+    '<div style="font-size:12px;margin-top:4px">อ้างอิงเอกสาร: '+esc(e.id)+(e.ref?' · '+esc(e.ref):'')+' · ปีภาษี '+yearBE+'</div>'+
+    '<div class="sign"><div class="box"><div class="line">ผู้รับเงิน / Payee</div></div><div class="box"><div class="line">ผู้จ่ายเงิน / ผู้มีหน้าที่หักภาษี</div></div></div>'+
+    '</div></body></html>';
+  printHtmlDoc(doc);
+}
+function whtReport(){
+  const ym=($('#taxMonth')&&$('#taxMonth').value)||new Date().toISOString().slice(0,7);
+  const rows=whtRows(ym);
+  return {name:'WHT '+ym,title:'ภ.ง.ด.3 / 53 — Withholding Tax · '+monthLabel(ym),file:'Visage_WHT_'+ym+'_'+nowFile(),filters:['Period '+ym],
+    rows,cols:[{l:'Doc Date',g:r=>r.e.date||''},{l:'ID',g:r=>r.e.id},{l:'Payee',g:r=>r.e.vendor||''},{l:'Tax ID',g:r=>vendorTaxId(r.e.vendor)},
+      {l:'Description',g:r=>r.e.cat+(r.e.sub?' / '+r.e.sub:'')},{l:'Base',g:r=>r.base,num:true,total:true},{l:'Rate %',g:r=>r.rate,num:true},{l:'WHT',g:r=>r.wht,num:true,total:true}]};
+}
+function printWhtSummary(){const r=whtReport();if(!r.rows.length){toast('No WHT for this period','alert');return;}printReport(r);}
+function exportTaxXls(){const r=whtReport();if(!r.rows.length){toast('No WHT for this period','alert');return;}exportXls(r);}
+function printVatReport(){
+  const ym=($('#taxMonth')&&$('#taxMonth').value)||new Date().toISOString().slice(0,7);
+  const vin=vatInRows(ym),vout=vatOutRows(ym),c=(db.master&&db.master.clinic)||{};
+  const vinTot=vin.reduce((a,r)=>a+r.vat,0),vinBase=vin.reduce((a,r)=>a+r.base,0);
+  const voutTot=vout.reduce((a,r)=>a+r.vat,0),voutBase=vout.reduce((a,r)=>a+r.base,0),net=voutTot-vinTot;
+  const inB=vin.map(r=>`<tr><td>${esc(r.e.id)}</td><td>${esc(r.e.vendor||'-')}</td><td>${esc(vendorTaxId(r.e.vendor)||'-')}</td><td class="n">${m0(r.base)}</td><td class="n">${m0(r.vat)}</td></tr>`).join('')||'<tr><td colspan="5">-</td></tr>';
+  const doc='<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ภ.พ.30 '+ym+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:"TH Sarabun New","Sarabun",Tahoma,Arial,sans-serif;color:#1a1418;margin:24px;font-size:12px}'+
+    'h1{font-size:18px;margin:0 0 2px;color:#111}.sub{color:#666;font-size:10px;margin:2px 0 12px;border-bottom:2px solid #a97c43;padding-bottom:8px}h2{font-size:13px;margin:14px 0 5px;color:#a97c43}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #d6d6d3;padding:4px 7px;text-align:left}th{background:#111;color:#fff;font-size:10px}td.n,th.n{text-align:right;white-space:nowrap}tfoot td{background:#ECECEC;font-weight:bold}'+
+    '.box{border:1px solid #a97c43;border-radius:5px;padding:10px 14px;margin-top:8px;font-size:13px}.box .r{display:flex;justify-content:space-between;padding:3px 0}.box .tot{border-top:1px solid #a97c43;font-weight:700;margin-top:4px;padding-top:6px}'+
+    '@media print{@page{size:A4;margin:12mm}}'+
+    '</style></head><body><h1>ภ.พ.30 — VAT Report</h1><div class="sub">'+esc(c.nameTh||'Visage Clinic')+' · เลขผู้เสียภาษี '+esc(c.taxId||'-')+' · งวด '+esc(monthLabel(ym))+' · Generated '+nowStamp()+'</div>'+
+    '<h2>ภาษีขาย / Output VAT (estimate, VAT-inclusive 7%)</h2><table><tbody><tr><td>ยอดขายรวม</td><td class="n">'+m0(vout.reduce((a,r)=>a+r.s.net,0))+'</td></tr><tr><td>ฐานภาษี</td><td class="n">'+m0(voutBase)+'</td></tr><tr><td><b>ภาษีขาย</b></td><td class="n"><b>'+m0(voutTot)+'</b></td></tr></tbody></table>'+
+    '<h2>ภาษีซื้อ / Input VAT ('+vin.length+' บิล)</h2><table><thead><tr><th>ID</th><th>Vendor</th><th>เลขภาษี</th><th class="n">ฐาน</th><th class="n">VAT</th></tr></thead><tbody>'+inB+'</tbody><tfoot><tr><td colspan="3">รวมภาษีซื้อ</td><td class="n">'+m0(vinBase)+'</td><td class="n">'+m0(vinTot)+'</td></tr></tfoot></table>'+
+    '<div class="box"><div class="r"><span>ภาษีขาย (Output VAT)</span><span>'+m0(voutTot)+'</span></div><div class="r"><span>หัก ภาษีซื้อ (Input VAT)</span><span>'+m0(vinTot)+'</span></div><div class="r tot"><span>'+(net>=0?'ภาษีที่ต้องชำระ':'ภาษีที่ขอคืน')+'</span><span>'+m0(Math.abs(net))+'</span></div></div>'+
+    '<div style="font-size:11px;color:#666;margin-top:8px">หมายเหตุ: ภาษีขายเป็นการประมาณการจากราคาขายที่รวม VAT 7% แล้ว โปรดตรวจสอบรายการบริการที่ได้รับยกเว้น VAT ก่อนยื่นจริง</div>'+
+    '</body></html>';
+  printHtmlDoc(doc);
+}
+/* ============ ALERTS / EXPIRY PANEL ============ */
+function daysUntil(ds){if(!ds)return null;return Math.round((new Date(ds)-new Date(new Date().toISOString().slice(0,10)))/86400000);}
+function daysSince(ds){if(!ds)return null;return Math.round((new Date(new Date().toISOString().slice(0,10))-new Date(ds))/86400000);}
+function expiringPackages(within){return (db.packages||[]).map(p=>({p,exp:pkgExpiry(p),rem:pkgRemaining(p),d:daysUntil(pkgExpiry(p))})).filter(x=>x.rem>0&&x.exp&&!pkgExpired(x.p)&&x.d!=null&&x.d>=0&&x.d<=within).sort((a,b)=>a.d-b.d);}
+function renderAlerts(){
+  if(!$('#alExpiring'))return;
+  const exp=expiringPackages(60);
+  const expired=(db.packages||[]).map(p=>({p,rem:pkgRemaining(p)})).filter(x=>x.rem>0&&pkgExpired(x.p)).sort((a,b)=>b.rem-a.rem);
+  const low=(db.items||[]).filter(isLow);
+  const unpaid=(db.sales||[]).filter(s=>s.balance>0.001).map(s=>({s,age:daysSince(s.date)})).sort((a,b)=>(b.age||0)-(a.age||0));
+  const unpaidTot=unpaid.reduce((a,x)=>a+Math.max(0,x.s.balance),0);
+  $('#alertKpis').innerHTML=[
+    kpiMini('Expiring ≤60d',String(exp.length),'packages with sessions'),
+    kpiMini('Expired w/ sessions',String(expired.length),'follow up / extend'),
+    kpiMini('Unpaid invoices',String(unpaid.length),money(unpaidTot)+' outstanding'),
+    kpiMini('Low / out of stock',String(low.length),'items to reorder')
+  ].join('');
+  $('#alExpiring').innerHTML=exp.length?`<table><thead><tr><th>Customer</th><th>Phone</th><th>Course</th><th class="num">Left</th><th>Expires</th><th class="num">Days</th></tr></thead><tbody>${exp.map(x=>`<tr><td>${esc(custName(x.p.cid)||'—')} <span class="muted">${esc(x.p.cid||'')}</span></td><td>${esc(custPhone(x.p.cid)||'—')}</td><td>${esc(x.p.svc)}</td><td class="num"><strong>${x.rem}</strong></td><td>${esc(x.exp)}</td><td class="num"><strong style="color:${x.d<=14?'var(--bad)':'var(--accent-2)'}">${x.d}</strong></td></tr>`).join('')}</tbody></table>`:emptyState('check','Nothing expiring','No packages expire in the next 60 days.');
+  $('#alExpired').innerHTML=expired.length?`<table><thead><tr><th>Customer</th><th>Phone</th><th>Course</th><th class="num">Left</th></tr></thead><tbody>${expired.map(x=>`<tr><td>${esc(custName(x.p.cid)||'—')}</td><td>${esc(custPhone(x.p.cid)||'—')}</td><td>${esc(x.p.svc)}</td><td class="num"><strong style="color:var(--bad)">${x.rem}</strong></td></tr>`).join('')}</tbody></table>`:emptyState('check','None','No expired packages with sessions left.');
+  $('#alStock').innerHTML=low.length?`<table><thead><tr><th>Item</th><th class="num">On Hand</th><th class="num">Reorder</th></tr></thead><tbody>${low.map(it=>`<tr><td>${esc(it.name)}</td><td class="num" style="color:${(+it.onHand||0)<=0?'var(--bad)':'var(--accent-2)'}">${+it.onHand||0}</td><td class="num">${it.reorder||0}</td></tr>`).join('')}</tbody></table>`:emptyState('check','Stock OK','No items at or below reorder level.');
+  $('#alUnpaid').innerHTML=unpaid.length?`<table><thead><tr><th>Invoice</th><th>Date</th><th class="num">Age (d)</th><th>Customer</th><th>Service</th><th class="num">Balance</th><th>Status</th></tr></thead><tbody>${unpaid.map(x=>`<tr><td><strong>${esc(x.s.inv)}</strong></td><td>${esc(x.s.date)}</td><td class="num"><strong style="color:${x.age>60?'var(--bad)':'inherit'}">${x.age}</strong></td><td>${esc(custName(x.s.cid))}</td><td>${esc(x.s.svc)}</td><td class="num"><strong style="color:var(--bad)">${money(x.s.balance)}</strong></td><td>${statusPill(x.s.status)}</td></tr>`).join('')}<tr style="background:var(--surface-2)"><td colspan="5" style="text-align:right"><strong>Total outstanding</strong></td><td class="num"><strong style="color:var(--bad)">${money(unpaidTot)}</strong></td><td></td></tr></tbody></table>`:emptyState('check','All settled','No outstanding balances.');
+}
+function exportExpiringXls(){
+  const exp=expiringPackages(90);
+  if(!exp.length){toast('No packages expiring in the next 90 days','alert');return;}
+  exportXls({name:'Expiring',title:'Packages Expiring (90 days) — follow-up',file:'Visage_Expiring_'+nowFile(),filters:['Next 90 days'],rows:exp,
+    cols:[{l:'Customer',g:x=>custName(x.p.cid)||''},{l:'HN',g:x=>x.p.cid||''},{l:'Phone',g:x=>custPhone(x.p.cid)},{l:'Course',g:x=>x.p.svc},
+      {l:'Sessions Left',g:x=>x.rem,num:true,total:true},{l:'Expires',g:x=>x.exp},{l:'Days Left',g:x=>x.d,num:true}]});
+}
 /* ============ RENDER: MASTER ============ */
 function renderMaster(){
   const m=db.master;
@@ -2775,7 +3058,7 @@ function printMonthlyReport(){
   printHtmlDoc(doc);
 }
 /* ============ RENDER ALL ============ */
-function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderPayroll();renderMaster();}
+function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderPayroll();renderCommitments();renderTax();renderAlerts();renderMaster();}
 
 /* ============ ABOUT DOC ============ */
 function fieldRow(n,d,t,mo,ex,va){return `<tr><td><strong>${n}</strong></td><td>${d}</td><td>${t}</td><td><span class="dtag ${mo==='M'?'m':'o'}">${mo==='M'?'Mandatory':'Optional'}</span></td><td>${ex}</td><td>${va}</td></tr>`;}
