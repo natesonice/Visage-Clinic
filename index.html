@@ -431,6 +431,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
       <a data-view="packages">__I_stack__ Packages</a>
       <a data-view="payroll">__I_wallet__ Payroll</a>
       <a data-view="commitments">__I_cash__ Commitments</a>
+      <a data-view="recon">__I_wallet__ Bank Recon</a>
       <div class="lbl">Configuration</div>
       <a data-view="master">__I_sliders__ Master Data</a>
       <a data-view="about">__I_doc__ About &amp; Design</a>
@@ -568,7 +569,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
           <button class="btn sec" onclick="exportExpensesXls()" title="Download the filtered expense list as an Excel file">__I_sheet__ Excel</button>
           <button class="btn" onclick="openExpense()">__I_plus__ New Expense</button></div>
         <div class="toolbar">
-          <div class="field-search">__I_search__<input id="expSearch" placeholder="Search vendor, category, reference…" oninput="renderExpenses()"></div>
+          <div class="field-search">__I_search__<input id="expSearch" placeholder="Search vendor (fuzzy), category, reference…" oninput="renderExpenses()"></div>
           <select id="expCat" onchange="renderExpenses()"><option value="">All categories</option></select>
           <select id="expApproval" onchange="renderExpenses()"><option value="">All approvals</option><option>Pending</option><option>Approved</option><option>Rejected</option><option>Reimbursed</option></select>
           <select id="expMonth" onchange="renderExpenses()"><option value="">All months</option></select>
@@ -683,6 +684,23 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
         <div class="kpis" id="cmKpis"></div>
         <div class="card"><div class="hd"><h3>Commitments</h3><span class="sub">installments &amp; recurring</span></div><div class="bd flush tbl-wrap" id="cmTable"></div></div>
         <div class="card"><div class="hd"><h3>Cash-flow forecast</h3><span class="sub">upcoming obligations</span></div><div class="bd flush tbl-wrap" id="cmForecast"></div></div>
+      </section>
+
+      <!-- BANK RECONCILIATION -->
+      <section id="view-recon" class="view">
+        <div class="phead"><div><h2>Bank Reconciliation</h2><p>Match a monthly statement against sales &amp; expenses, per account</p></div><div class="grow"></div>
+          <select id="rcMonth" onchange="renderRecon()" title="Statement month"></select>
+          <select id="rcAccount" onchange="renderRecon()" title="Bank account"></select>
+          <input type="number" id="rcWindow" min="0" max="31" step="1" value="5" title="Date-match window (days)" style="width:64px" oninput="rcSetWindow()">
+          <button class="btn sec" onclick="autoMatchRecon()" title="Auto-match by amount + date">__I_refresh__ Match</button>
+          <button class="btn sec" onclick="printRecon()" title="Print reconciliation">__I_print__ Print</button>
+          <button class="btn sec" onclick="exportReconXls()" title="Download as Excel">__I_sheet__ Excel</button></div>
+        <div class="kpis" id="rcKpis"></div>
+        <div class="card"><div class="hd"><h3>Statement lines</h3><div style="display:flex;gap:6px"><button class="btn sec sm" onclick="openStatementInput()" title="Paste or read a statement">__I_doc__ Add statement</button><button class="btn sec sm" onclick="addReconLine()" title="Add one line">__I_plus__ Line</button></div></div><div class="bd flush tbl-wrap" id="rcLines"></div></div>
+        <div class="dash-grid g2">
+          <div class="card"><div class="hd"><h3>In app, not on statement</h3><span class="sub">uncleared</span></div><div class="bd flush tbl-wrap" id="rcAppOnly"></div></div>
+          <div class="card"><div class="hd"><h3>Reconciliation summary</h3></div><div class="bd" id="rcSummary"></div></div>
+        </div>
       </section>
 
       <!-- TAX -->
@@ -818,8 +836,8 @@ const SERVICES_DEFAULT=[];
 function vendorsFromNames(names){return names.filter(n=>n&&n!=='Other').map((n,i)=>({id:'VN-'+String(i+1).padStart(3,'0'),name:n,contact:'',phone:'',email:'',taxId:'',terms:'',notes:''}));}
 function emptyDB(){
   return {master:JSON.parse(JSON.stringify(MASTER_DEFAULT)),services:JSON.parse(JSON.stringify(SERVICES_DEFAULT)),
-    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],employees:[],payroll:[],commitments:[],
-    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001,emp:1001,pay:1001,cm:1001}};
+    customers:[],sales:[],expenses:[],vendors:vendorsFromNames(MASTER_DEFAULT.vendors),items:[],moves:[],promos:[],packages:[],employees:[],payroll:[],commitments:[],recon:[],
+    seq:{inv:1001,exp:501,cust:1001,vnd:vendorsFromNames(MASTER_DEFAULT.vendors).length+1,itm:1001,mov:1001,pro:1001,pkg:1001,emp:1001,pay:1001,cm:1001,rec:1001}};
 }
 /* ============ CLOUD (Supabase) ============ */
 const CFG_KEY='visage_sb_cfg', SES_KEY='visage_sb_session';
@@ -867,7 +885,7 @@ async function rest(method,path,body,headers,_retried){
 }
 async function fetchAllRecords(role){
   // staff never download expense or payroll/employee records (real data-level protection, not just hidden tabs)
-  const extra=role==='staff'?'&kind=not.in.(expense,payroll,employee,commitment)':'';
+  const extra=role==='staff'?'&kind=not.in.(expense,payroll,employee,commitment,recon)':'';
   const out=[];const page=1000;let from=0;
   for(;;){
     const r=await rest('GET','records?select=kind,id,data&kind=neq.doc'+extra+'&order=kind.asc,id.asc',undefined,{Range:from+'-'+(from+page-1)});
@@ -891,12 +909,12 @@ function isStaff(){return ROLE==='staff';}
 function applyRole(){
   const staff=isStaff();
   // staff: hide full Dashboard + Expenses + Analytics, show the sales-only Sales Dashboard
-  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"],#nav a[data-view="payroll"],#nav a[data-view="tax"],#nav a[data-view="commitments"]').forEach(a=>a.style.display=staff?'none':'');
+  document.querySelectorAll('#nav a[data-view="dashboard"],#nav a[data-view="expenses"],#nav a[data-view="analytics"],#nav a[data-view="reports"],#nav a[data-view="payroll"],#nav a[data-view="tax"],#nav a[data-view="commitments"],#nav a[data-view="recon"]').forEach(a=>a.style.display=staff?'none':'');
   const sd=document.querySelector('#nav a[data-view="salesdash"]');if(sd)sd.style.display=staff?'':'none';
   const rc=document.getElementById('roleChip');
   if(rc){rc.textContent=staff?'Staff':'Admin';rc.dataset.role=ROLE;rc.style.display='';}
   const cur=document.querySelector('.view.active');
-  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'||cur.id==='view-payroll'||cur.id==='view-tax'||cur.id==='view-commitments'))go('salesdash');}
+  if(staff){if(cur&&(cur.id==='view-dashboard'||cur.id==='view-expenses'||cur.id==='view-analytics'||cur.id==='view-reports'||cur.id==='view-payroll'||cur.id==='view-tax'||cur.id==='view-commitments'||cur.id==='view-recon'))go('salesdash');}
   else{if(cur&&cur.id==='view-salesdash')go('dashboard');}
 }
 function dbToRecords(){
@@ -912,6 +930,7 @@ function dbToRecords(){
   (db.employees||[]).forEach(x=>recs.push({kind:'employee',id:String(x.id),data:x}));
   (db.payroll||[]).forEach(x=>recs.push({kind:'payroll',id:String(x.id),data:x}));
   (db.commitments||[]).forEach(x=>recs.push({kind:'commitment',id:String(x.id),data:x}));
+  (db.recon||[]).forEach(x=>recs.push({kind:'recon',id:String(x.id),data:x}));
   db.services.forEach(s=>recs.push({kind:'service',id:String(s.name),data:s}));
   recs.push({kind:'meta',id:'master',data:db.master});
   recs.push({kind:'meta',id:'seq',data:db.seq});
@@ -932,6 +951,7 @@ function applyRecords(rows){
     else if(r.kind==='employee')(d.employees||(d.employees=[])).push(x);
     else if(r.kind==='payroll')(d.payroll||(d.payroll=[])).push(x);
     else if(r.kind==='commitment')(d.commitments||(d.commitments=[])).push(x);
+    else if(r.kind==='recon')(d.recon||(d.recon=[])).push(x);
     else if(r.kind==='service')d.services.push(x);
     else if(r.kind==='meta'&&r.id==='master'){d.master=Object.assign({},d.master,x);if(!d.master.admins)d.master.admins=[];}
     else if(r.kind==='meta'&&r.id==='seq')d.seq=Object.assign({},d.seq,x);});
@@ -1058,9 +1078,9 @@ function expRunningNext(period){let max=0;db.expenses.forEach(e=>{if(expPeriod(e
 function newExpId(period){const yymm=periodToYYMM(period);return yymm.length===4?yymm+'-'+expRunningNext(period):'';}
 
 /* ============ NAV / THEME ============ */
-const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',payroll:'Payroll',commitments:'Commitments',tax:'Tax (ภาษี)',alerts:'Alerts',master:'Master Data',about:'About & Design'};
+const TITLES={dashboard:'Dashboard',salesdash:'Sales Dashboard',analytics:'Analytics',reports:'Reports',sales:'Sales',expenses:'Expenses',vendors:'Vendors',inventory:'Inventory',customers:'Customers',services:'Service Catalog',promos:'Promotions',packages:'Packages',payroll:'Payroll',commitments:'Commitments',recon:'Bank Reconciliation',tax:'Tax (ภาษี)',alerts:'Alerts',master:'Master Data',about:'About & Design'};
 function go(view){
-  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'||view==='payroll'||view==='tax'||view==='commitments'))view='salesdash';
+  if(typeof isStaff==='function'&&isStaff()&&(view==='dashboard'||view==='expenses'||view==='analytics'||view==='reports'||view==='payroll'||view==='tax'||view==='commitments'||view==='recon'))view='salesdash';
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#view-'+view).classList.add('active');
@@ -1508,9 +1528,30 @@ function salesReport(){
      {l:'Method',g:s=>s.pm},{l:'Status',g:s=>s.status},{l:'Remarks',g:s=>s.rem,noPrint:true}
     ]};
 }
+// Bounded Levenshtein for typo-tolerant search
+function _lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let prev=Array.from({length:n+1},(_,j)=>j),cur=new Array(n+1);for(let i=1;i<=m;i++){cur[0]=i;for(let j=1;j<=n;j++){const c=a.charCodeAt(i-1)===b.charCodeAt(j-1)?0:1;cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+c);}[prev,cur]=[cur,prev];}return prev[n];}
+// Fuzzy match: substring, per-word substring, or small edit distance (handles typos & partial vendor names)
+function fuzzyMatch(text,q){
+  text=String(text||'').toLowerCase();q=String(q||'').toLowerCase().trim();
+  if(!q)return true;if(!text)return false;
+  if(text.includes(q))return true;
+  const qWords=q.split(/\s+/).filter(Boolean);
+  const tWords=text.split(/[\s/,.\-()&]+/).filter(Boolean);
+  const thr=w=>w.length<=3?1:w.length<=6?2:3;
+  return qWords.every(qw=>{
+    if(text.includes(qw))return true;
+    return tWords.some(tw=>tw.includes(qw)||(Math.abs(tw.length-qw.length)<=3&&_lev(tw,qw)<=thr(qw)));
+  });
+}
+// Expense search: exact substring across fields, plus fuzzy on vendor / sub-category / remarks
+function expSearchMatch(e,q){
+  if(!q)return true;
+  if([e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q))return true;
+  return fuzzyMatch(e.vendor,q)||fuzzyMatch(e.sub,q)||fuzzyMatch(e.rem,q);
+}
 function expensesReport(){
   const q=($('#expSearch').value||'').toLowerCase(),cat=$('#expCat').value,ap=$('#expApproval').value,mo=$('#expMonth').value;
-  const rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
+  const rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&expSearchMatch(e,q));
   const f=[];if(mo)f.push('Month '+mo);if(cat)f.push('Category: '+cat);if(ap)f.push('Approval: '+ap);if($('#expSearch').value)f.push('Search: "'+$('#expSearch').value+'"');
   return {name:'Expenses',title:'Expenses Report',file:'Visage_Expenses_'+nowFile(),filters:f,rows,
     cols:[
@@ -1733,7 +1774,7 @@ function renderExpenses(){
   const m=db.master;const sel=$('#expCat');const cur=sel.value;
   sel.innerHTML='<option value="">All categories</option>'+m.expenseCategories.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
   const q=($('#expSearch').value||'').toLowerCase(),cat=$('#expCat').value,ap=$('#expApproval').value,mo=$('#expMonth').value;
-  let rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&(!q||[e.id,e.vendor,e.cat,e.sub,e.ref].join(' ').toLowerCase().includes(q)));
+  let rows=db.expenses.filter(e=>(!cat||e.cat===cat)&&(!ap||e.appr===ap)&&(!mo||expPeriod(e)===mo)&&expSearchMatch(e,q));
   const sum=rows.reduce((a,e)=>a+e.total,0),whtSum=rows.reduce((a,e)=>a+(e.wht||0),0);
   $('#expCount').innerHTML=`<b>${rows.length}</b> of ${db.expenses.length} · <b>${money(sum)}</b>${whtSum>0.001?` · WHT <b>${money(whtSum)}</b>`:''}`;
   if(!db.expenses.length){$('#expTable').innerHTML=emptyState('exp','No expenses yet','Record a clinic cost to start tracking spend.',`<button class="btn" onclick="openExpense()">${ic('plus')} New Expense</button>`);return;}
@@ -2464,6 +2505,134 @@ function payrollReport(){
 }
 function printPayrollSummary(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}printReport(r);}
 function exportPayrollXls(){const r=payrollReport();if(!r.rows.length){toast('No payroll for this month','alert');return;}exportXls(r);}
+/* ============ BANK RECONCILIATION ============ */
+function rcParseNum(s){if(s==null)return null;const t=String(s).replace(/[,\s฿]/g,'').replace(/[()]/g,m=>m==='('?'-':'');if(t===''||!/[0-9]/.test(t)||isNaN(+t))return null;return +t;}
+function rcParseDate(s){s=String(s||'').trim();let m;
+  if(m=s.match(/^(\d{4})-(\d{2})-(\d{2})/))return m[1]+'-'+m[2]+'-'+m[3];
+  if(m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/)){let y=m[3];if(y.length===2)y=(+y>70?'19':'20')+y;return y+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');}
+  return '';}
+function rcDateDiff(a,b){return Math.round((new Date(a)-new Date(b))/86400000);}
+function reconAccounts(){const set=new Set();(db.expenses||[]).forEach(e=>{if(e.pm&&/bank|kbank|scb|transfer|director|โอน/i.test(e.pm))set.add(e.pm);});(db.master.paymentMethods||[]).forEach(p=>{if(/bank|kbank|scb|transfer|director|โอน/i.test(p))set.add(p);});['Bank Transfer (KBANK)','Bank Transfer (SCB)','Director (Advance)','Bank Transfer'].forEach(x=>set.add(x));return [...set];}
+function reconMonths(){const m=new Set();(db.sales||[]).forEach(s=>m.add((s.date||'').slice(0,7)));(db.expenses||[]).forEach(e=>m.add((e.date||'').slice(0,7)));(db.recon||[]).forEach(r=>m.add(r.month));return [...m].filter(Boolean).sort();}
+function rcWin(rc){return rc&&+rc.window>=0?+rc.window:5;}
+function rcDateRange(rc){const [y,mm]=rc.month.split('-').map(Number),w=rcWin(rc);const s=new Date(y,mm-1,1);s.setDate(s.getDate()-w);const e=new Date(y,mm,0);e.setDate(e.getDate()+w);const z=d=>d.toISOString().slice(0,10);return [z(s),z(e)];}
+function rcCredits(rc){const[a,b]=rcDateRange(rc);return (db.sales||[]).filter(s=>(+s.paid||0)>0.001&&s.date>=a&&s.date<=b).map(s=>({date:s.date,amt:Math.round((+s.paid||0)*100)/100,ref:s.inv,kind:'sale',label:custName(s.cid)||s.svc||''}));}
+function rcDebits(rc){const[a,b]=rcDateRange(rc);return (db.expenses||[]).filter(e=>e.pm===rc.account&&(e.date||'')>=a&&(e.date||'')<=b).map(e=>({date:e.date,amt:Math.round(((e.netpay!=null?+e.netpay:+e.total)||0)*100)/100,ref:e.id,kind:'expense',label:e.vendor||e.cat||''}));}
+function curRecon(create){const month=$('#rcMonth')&&$('#rcMonth').value,account=$('#rcAccount')&&$('#rcAccount').value;if(!month||!account)return null;let rc=(db.recon||[]).find(r=>r.month===month&&r.account===account);if(!rc&&create){rc={id:'RC-'+db.seq.rec,month,account,window:+($('#rcWindow')&&$('#rcWindow').value)||5,lines:[],notes:'',createdAt:new Date().toISOString().slice(0,10)};db.recon.unshift(rc);db.seq.rec++;save();}return rc;}
+function rcSetWindow(){const rc=curRecon(false);if(rc){rc.window=+($('#rcWindow').value)||5;save();}renderRecon();}
+function renderRecon(){
+  const mSel=$('#rcMonth');if(!mSel)return;
+  const months=reconMonths();const accs=reconAccounts();
+  if(months.length){const cm=mSel.value&&months.includes(mSel.value)?mSel.value:months[months.length-1];mSel.innerHTML=months.slice().reverse().map(m=>`<option value="${m}" ${m===cm?'selected':''}>${monthLabel(m)}</option>`).join('');}
+  const aSel=$('#rcAccount');const ca=aSel.value&&accs.includes(aSel.value)?aSel.value:accs[0];aSel.innerHTML=accs.map(a=>`<option ${a===ca?'selected':''}>${esc(a)}</option>`).join('');
+  const rc=curRecon(false);
+  const lines=rc?rc.lines:[];
+  const stIn=lines.reduce((a,l)=>a+(+l.inAmt||0),0),stOut=lines.reduce((a,l)=>a+(+l.outAmt||0),0);
+  const matched=lines.filter(l=>l.match).length,unmatched=lines.length-matched;
+  $('#rcKpis').innerHTML=[
+    kpiMini('Statement In',money(stIn),lines.filter(l=>+l.inAmt>0).length+' credits'),
+    kpiMini('Statement Out',money(stOut),lines.filter(l=>+l.outAmt>0).length+' debits'),
+    kpiMini('Matched',String(matched),'of '+lines.length+' lines'),
+    kpiMini('Unmatched',String(unmatched),'need review')
+  ].join('');
+  const credits=rc?rcCredits(rc):[],debits=rc?rcDebits(rc):[];
+  const usedRefs=new Set(lines.filter(l=>l.match).map(l=>l.match));
+  // statement lines table
+  if(!rc||!lines.length){$('#rcLines').innerHTML=emptyState('doc','No statement loaded','Add a statement (paste or read a PDF) for '+(rc?monthLabel(rc.month)+' · '+esc(rc.account):'this month/account')+'.',`<button class="btn" onclick="openStatementInput()">${ic('doc')} Add statement</button>`);}
+  else{
+    $('#rcLines').innerHTML=`<table><thead><tr><th>Date</th><th>Description</th><th class="num">In</th><th class="num">Out</th><th>Matched to</th><th></th></tr></thead><tbody>${lines.map(l=>{
+      const isIn=+l.inAmt>0;const amt=isIn?+l.inAmt:+l.outAmt;
+      let cell;
+      if(l.match){cell=`<span class="pill paid">${esc(l.match)}</span> <button class="iconbtn" title="Unmatch" onclick="setReconMatch('${l.id}','')" aria-label="Unmatch">${ic('x')}</button>`;}
+      else{const pool=(isIn?credits:debits).filter(c=>!usedRefs.has(c.ref)&&Math.abs(c.amt-amt)<0.5&&Math.abs(rcDateDiff(c.date,l.d))<=rcWin(rc));
+        cell=pool.length?`<select onchange="setReconMatch('${l.id}',this.value)"><option value="">— match —</option>${pool.map(c=>`<option value="${esc(c.ref)}">${esc(c.ref)} · ${esc(c.date)} · ${esc(c.label).slice(0,18)}</option>`).join('')}</select>`:'<span class="muted">no candidate</span>';}
+      return `<tr><td>${esc(l.d||'')}</td><td>${esc(l.desc||'')}</td><td class="num">${l.inAmt?money(+l.inAmt):''}</td><td class="num">${l.outAmt?money(+l.outAmt):''}</td><td>${cell}</td><td><div class="rowact"><button class="iconbtn" onclick="editReconLine('${l.id}')" aria-label="Edit">${ic('edit')}</button><button class="iconbtn del" onclick="delReconLine('${l.id}')" aria-label="Delete">${ic('trash')}</button></div></td></tr>`;
+    }).join('')}<tr style="background:var(--surface-2)"><td colspan="2" style="text-align:right"><strong>Total</strong></td><td class="num"><strong>${money(stIn)}</strong></td><td class="num"><strong>${money(stOut)}</strong></td><td colspan="2"></td></tr></tbody></table>`;
+  }
+  // app entries not on statement (uncleared)
+  const appOnly=[...credits,...debits].filter(c=>!usedRefs.has(c.ref));
+  $('#rcAppOnly').innerHTML=rc?(appOnly.length?`<table><thead><tr><th>Ref</th><th>Date</th><th>Type</th><th>Detail</th><th class="num">Amount</th></tr></thead><tbody>${appOnly.sort((a,b)=>a.date<b.date?-1:1).map(c=>`<tr><td><strong>${esc(c.ref)}</strong></td><td>${esc(c.date)}</td><td>${c.kind==='sale'?'In':'Out'}</td><td>${esc(c.label).slice(0,28)}</td><td class="num">${money(c.amt)}</td></tr>`).join('')}</tbody></table>`:emptyState('check','All cleared','Every app entry for this account/period is matched.')):'<div style="padding:var(--s4);color:var(--ink-3)">Select a month & account, then add the statement.</div>';
+  // summary
+  if(rc){
+    const matchedIn=lines.filter(l=>l.match&&+l.inAmt>0).reduce((a,l)=>a+(+l.inAmt||0),0);
+    const matchedOut=lines.filter(l=>l.match&&+l.outAmt>0).reduce((a,l)=>a+(+l.outAmt||0),0);
+    const unIn=stIn-matchedIn,unOut=stOut-matchedOut;
+    const appCr=credits.reduce((a,c)=>a+c.amt,0),appDr=debits.reduce((a,c)=>a+c.amt,0);
+    const appOnlyCr=appOnly.filter(c=>c.kind==='sale').reduce((a,c)=>a+c.amt,0),appOnlyDr=appOnly.filter(c=>c.kind==='expense').reduce((a,c)=>a+c.amt,0);
+    $('#rcSummary').innerHTML=`<div class="bars">
+      ${anStat('Statement net (in − out)',money(stIn-stOut))}
+      ${anStat('Matched in / out',money(matchedIn)+' / '+money(matchedOut))}
+      ${anStat('Unmatched on statement',money(unIn)+' in · '+money(unOut)+' out')}
+      ${anStat('In app, not on statement',money(appOnlyCr)+' in · '+money(appOnlyDr)+' out')}
+      ${anStat('App net for account (in − out)',money(appCr-appDr))}</div>
+      <div class="dnote" style="margin-top:6px">Money-in is matched to sales (collected); money-out to expenses paid via <b>${esc(rc.account)}</b>, within ±${rcWin(rc)} days.</div>`;
+  } else $('#rcSummary').innerHTML='';
+}
+$('#rcMonth')&&$('#rcMonth').addEventListener('change',renderRecon);
+$('#rcAccount')&&$('#rcAccount').addEventListener('change',renderRecon);
+function setReconMatch(lineId,ref){const rc=curRecon(false);if(!rc)return;const l=rc.lines.find(x=>x.id===lineId);if(!l)return;l.match=ref||'';save();renderRecon();}
+function autoMatchRecon(){
+  const rc=curRecon(true);if(!rc){toast('Pick a month & account first','alert');return;}
+  if(!rc.lines.length){toast('Add the statement lines first','alert');return;}
+  const credits=rcCredits(rc),debits=rcDebits(rc),win=rcWin(rc);
+  const used=new Set(rc.lines.filter(l=>l.match).map(l=>l.match));let n=0;
+  rc.lines.forEach(l=>{if(l.match)return;const isIn=+l.inAmt>0,amt=isIn?+l.inAmt:+l.outAmt,pool=isIn?credits:debits;let best=null,bd=1e9;
+    pool.forEach(c=>{if(used.has(c.ref))return;if(Math.abs(c.amt-amt)>0.5)return;const dd=Math.abs(rcDateDiff(c.date,l.d));if(dd<=win&&dd<bd){bd=dd;best=c;}});
+    if(best){l.match=best.ref;used.add(best.ref);n++;}});
+  save();renderRecon();toast(n+' line(s) auto-matched','check');
+}
+function openStatementInput(){
+  const rc=curRecon(false);const acc=$('#rcAccount')&&$('#rcAccount').value,mon=$('#rcMonth')&&$('#rcMonth').value;
+  const body=`<p style="color:var(--ink-2);font-size:13px;margin:0 0 var(--s3)">Paste statement lines for <b>${esc(monthLabel(mon||''))}</b> · <b>${esc(acc||'')}</b>. One line each, columns separated by a <b>Tab</b> or <b>|</b>:<br><code style="font-size:12px">date &nbsp;|&nbsp; description &nbsp;|&nbsp; money IN &nbsp;|&nbsp; money OUT</code><br>Leave In or Out blank. Date as YYYY-MM-DD or DD/MM/YYYY. (You can fix any line afterwards.)</p>
+   <div class="field"><label>Attach the PDF statement (optional · stored for record)</label><input type="file" id="rc_pdf" accept="application/pdf,image/*"> <button type="button" class="btn sec sm" onclick="readReconPdf()">${ic('doc')} Read PDF → text</button></div>
+   <div class="field"><label>Statement lines</label><textarea id="rc_text" rows="9" placeholder="2026-05-02 | KBANK transfer in | 15000 |\n2026-05-03 | Rent payment |  | 35000" style="font-family:monospace;font-size:12.5px"></textarea></div>
+   <div class="dnote" id="rc_parsehint"></div>`;
+  showModal('Add statement',body,`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="parseStatementToLines()">Parse &amp; add lines</button>`);
+}
+async function readReconPdf(){
+  const f=$('#rc_pdf')&&$('#rc_pdf').files&&$('#rc_pdf').files[0];if(!f){toast('Choose a PDF first','alert');return;}
+  $('#rc_parsehint').textContent='Reading PDF…';
+  try{const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});
+    if(f.type==='application/pdf'){const txt=await extractPdfText(dataUrl);$('#rc_text').value=(txt||'').trim();$('#rc_parsehint').textContent='Extracted text — please arrange into date | desc | in | out, then Parse.';}
+    else{$('#rc_parsehint').textContent='Image attached; type the lines manually below.';}
+    if(curRecon(true)){const k='recon/'+curRecon(true).id+'/statement';docPut(k,{kind:f.type==='application/pdf'?'pdf':'img',data:dataUrl}).catch(()=>{});}
+  }catch(e){$('#rc_parsehint').textContent='Could not read the PDF automatically — paste the lines manually.';}
+}
+let _pdfjsP=null;
+function loadPdfJs(){if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);if(_pdfjsP)return _pdfjsP;
+  _pdfjsP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=()=>{try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res(window.pdfjsLib);}catch(e){rej(e);}};s.onerror=()=>rej(new Error('pdf.js load failed'));document.head.appendChild(s);});
+  return _pdfjsP;}
+async function extractPdfText(dataUrl){const pdfjs=await loadPdfJs();const b=atob(dataUrl.split(',')[1]);const arr=new Uint8Array(b.length);for(let i=0;i<b.length;i++)arr[i]=b.charCodeAt(i);const pdf=await pdfjs.getDocument({data:arr}).promise;let out='';for(let p=1;p<=pdf.numPages;p++){const pg=await pdf.getPage(p);const c=await pg.getTextContent();const byY={};c.items.forEach(it=>{const y=Math.round(it.transform[5]);(byY[y]=byY[y]||[]).push(it.str);});Object.keys(byY).sort((a,b)=>b-a).forEach(y=>{out+=byY[y].join('  ')+'\n';});}return out;}
+function parseStatementLines(text){const out=[];(text||'').split(/\r?\n/).forEach(raw=>{
+  const s=raw.trim();if(!s)return;
+  let cols=s.split(/\t|\s*\|\s*/).map(x=>x.trim());if(cols.length<2)cols=s.split(/\s{2,}/).map(x=>x.trim());
+  cols=cols.filter((x,i)=>!(x===''&&i===cols.length-1));
+  const d=rcParseDate(cols[0]);if(!d)return; // require a parseable date to accept a line
+  let inAmt=0,outAmt=0,desc='';
+  if(cols.length>=4){desc=cols[1]||'';inAmt=rcParseNum(cols[2])||0;outAmt=rcParseNum(cols[3])||0;}
+  else if(cols.length===3){desc=cols[1]||'';const n=rcParseNum(cols[2]);if(n!=null){if(n>=0)inAmt=n;else outAmt=Math.abs(n);}}
+  else if(cols.length===2){const n=rcParseNum(cols[1]);if(n!=null){if(n>=0)inAmt=n;else outAmt=Math.abs(n);}else desc=cols[1];}
+  if(inAmt<0){outAmt=Math.abs(inAmt);inAmt=0;}
+  out.push({id:'L'+Math.random().toString(36).slice(2,9),d,desc,inAmt:Math.round(inAmt*100)/100,outAmt:Math.round(outAmt*100)/100,match:''});
+});return out;}
+function parseStatementToLines(){const text=$('#rc_text')?$('#rc_text').value:'';const parsed=parseStatementLines(text);
+  if(!parsed.length){toast('No lines with a recognizable date found','alert');return;}
+  const rc=curRecon(true);rc.lines=rc.lines.concat(parsed);save();renderAll();closeModal();toast(parsed.length+' line(s) added','check');}
+function addReconLine(){const rc=curRecon(true);if(!rc)return;openReconLine();}
+function openReconLine(lineId){const rc=curRecon(true);const l=(rc.lines||[]).find(x=>x.id===lineId)||{};const edit=!!lineId;
+  const body=`<div class="grid2"><div class="field"><label>Date<span class="req">*</span></label><input type="date" id="rl_d" value="${l.d||rc.month+'-01'}"></div><div class="field"><label>Description</label><input id="rl_desc" value="${esc(l.desc||'')}"></div></div>
+   <div class="grid2"><div class="field"><label>Money In (credit)</label><input type="number" id="rl_in" min="0" step="0.01" value="${l.inAmt||''}"></div><div class="field"><label>Money Out (debit)</label><input type="number" id="rl_out" min="0" step="0.01" value="${l.outAmt||''}"></div></div>`;
+  showModal(edit?'Edit line':'Add line',body,`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveReconLine(${edit?`'${lineId}'`:'null'})">${edit?'Update':'Add'}</button>`);}
+function saveReconLine(lineId){const rc=curRecon(true);const g=id=>$('#'+id).value;const rec={id:lineId||('L'+Math.random().toString(36).slice(2,9)),d:g('rl_d'),desc:g('rl_desc').trim(),inAmt:+g('rl_in')||0,outAmt:+g('rl_out')||0,match:lineId?((rc.lines.find(x=>x.id===lineId)||{}).match||''):''};
+  if(!rec.d){toast('Date required','alert');return;}
+  if(lineId)rc.lines[rc.lines.findIndex(x=>x.id===lineId)]=rec;else rc.lines.push(rec);save();renderAll();closeModal();toast('Saved','check');}
+function editReconLine(id){openReconLine(id);}
+function delReconLine(id){const rc=curRecon(false);if(!rc)return;rc.lines=rc.lines.filter(x=>x.id!==id);save();renderAll();toast('Line removed','check');}
+function reconReport(){const rc=curRecon(false);const lines=rc?rc.lines:[];
+  return {name:'Reconciliation',title:'Bank Reconciliation — '+(rc?monthLabel(rc.month)+' · '+rc.account:''),file:'Visage_Recon_'+nowFile(),filters:rc?['Month '+rc.month,'Account: '+rc.account,'±'+rcWin(rc)+' days']:[],rows:lines,
+    cols:[{l:'Date',g:l=>l.d||''},{l:'Description',g:l=>l.desc||''},{l:'In',g:l=>+l.inAmt||0,num:true,total:true},{l:'Out',g:l=>+l.outAmt||0,num:true,total:true},{l:'Matched To',g:l=>l.match||''},{l:'Status',g:l=>l.match?'Matched':'Unmatched'}]};}
+function printRecon(){const r=reconReport();if(!r.rows.length){toast('No statement lines','alert');return;}printReport(r);}
+function exportReconXls(){const r=reconReport();if(!r.rows.length){toast('No statement lines','alert');return;}exportXls(r);}
 /* ============ COMMITMENTS (installments & recurring costs) ============ */
 function cmAddMonths(ds,n){if(!ds)return '';const p=ds.split('-').map(Number);const dt=new Date(p[0],(p[1]-1)+n,p[2]||1);const z=x=>String(x).padStart(2,'0');return dt.getFullYear()+'-'+z(dt.getMonth()+1)+'-'+z(dt.getDate());}
 function cmIsInst(c){return c.type==='installment';}
@@ -3058,7 +3227,7 @@ function printMonthlyReport(){
   printHtmlDoc(doc);
 }
 /* ============ RENDER ALL ============ */
-function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderPayroll();renderCommitments();renderTax();renderAlerts();renderMaster();}
+function renderAll(){$('#branchName').textContent=BRANCH;renderDashboard();renderSalesDash();renderAnalytics();renderReports();renderSales();renderExpenses();renderVendors();renderInventory();renderCustomers();renderServices();renderPromos();renderPackages();renderPayroll();renderCommitments();renderRecon();renderTax();renderAlerts();renderMaster();}
 
 /* ============ ABOUT DOC ============ */
 function fieldRow(n,d,t,mo,ex,va){return `<tr><td><strong>${n}</strong></td><td>${d}</td><td>${t}</td><td><span class="dtag ${mo==='M'?'m':'o'}">${mo==='M'?'Mandatory':'Optional'}</span></td><td>${ex}</td><td>${va}</td></tr>`;}
